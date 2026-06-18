@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "EchoVision",
+    "slug": "echovision",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/app_logo.jpeg",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/app_logo.jpeg",
+      "resizeMode": "contain",
+      "backgroundColor": "#121212"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.echovision.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSCameraUsageDescription": "EchoVision needs camera access to scan and describe your surroundings.",
+        "NSMicrophoneUsageDescription": "EchoVision needs microphone access for voice commands.",
+        "NSLocationWhenInUseUsageDescription": "EchoVision needs your location for emergency SOS services.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "EchoVision needs your location for emergency SOS services."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/app_logo.jpeg",
+        "backgroundColor": "#121212"
+      },
+      "package": "com.echovision.app",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "SEND_SMS",
+        "CALL_PHONE",
+        "VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-dev-client",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "EchoVision needs camera access to scan and describe your surroundings."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "EchoVision needs microphone access for voice commands."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "EchoVision needs your location for emergency SOS services.",
+          "locationWhenInUsePermission": "EchoVision needs your location for emergency SOS services."
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c62807aa-3412-41d8-a625-95c479d07d97"
+      }
+    }
+  }
+}

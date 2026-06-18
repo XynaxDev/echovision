@@ -1,0 +1,1 @@
+export const speak = () => {}; export const stop = () => {}; export const pause = () => {}; export const resume = () => {}; export const isSpeakingAsync = async () => false; export const getAvailableVoicesAsync = async () => [];

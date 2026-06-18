@@ -1,0 +1,30 @@
+# Environment
+.env
+serviceAccountKey.json
+
+# Audio Files
+*.wav
+*.mp3
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# UV
+.python-version
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

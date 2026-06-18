@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native builds
+ios/
+android/
+
+# Environment
+.env
+.env.local
+
+# Firebase Secrets
+google-services.json
+GoogleService-Info.plist
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Metro
+*.jsbundle

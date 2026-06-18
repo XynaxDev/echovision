@@ -1,0 +1,34 @@
+# Global Ignores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+
+# Frontend specific overrides
+frontend/node_modules/
+frontend/.expo/
+frontend/dist/
+frontend/web-build/
+frontend/ios/
+frontend/android/
+frontend/google-services.json
+frontend/GoogleService-Info.plist
+
+# Backend specific overrides
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/serviceAccountKey.json
+backend/*.wav
+backend/*.mp3

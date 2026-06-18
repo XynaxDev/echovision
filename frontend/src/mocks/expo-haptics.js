@@ -1,0 +1,1 @@
+export const notificationAsync = async () => {}; export const impactAsync = async () => {}; export const selectionAsync = async () => {}; export const NotificationFeedbackType = { Success: 0, Warning: 1, Error: 2 }; export const ImpactFeedbackStyle = { Light: 0, Medium: 1, Heavy: 2 };
