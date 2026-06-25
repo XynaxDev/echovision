@@ -10,16 +10,90 @@ from __future__ import annotations
 import hashlib
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+import asyncio
+import json
+import base64
+import re
 
 from app.core.cache import get_cache, set_cache
 from app.core.security import CurrentUser, get_current_user
 from app.schemas.vision import ScanRequest, ScanResponse, FormatOCRRequest, FormatOCRResponse
-from app.services import nvidia_service
+from app.services import nvidia_service, sarvam_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/vision", tags=["Vision"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WEBSOCKET: /api/v1/vision/stream
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.websocket("/stream")
+async def vision_stream_endpoint(websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        # Wait for the initialization payload
+        init_msg = await websocket.receive_text()
+        payload = json.loads(init_msg)
+        image_base64 = payload.get("image_base64")
+        language = payload.get("language", "hindi")
+        mime_type = payload.get("mime_type", "image/jpeg")
+
+        if not image_base64:
+            await websocket.close(code=1003)
+            return
+
+        tts_queue = asyncio.Queue()
+        
+        async def vision_stream_worker():
+            try:
+                async for sentence in nvidia_service.stream_scene_with_nvidia(
+                    image_base64=image_base64,
+                    mime_type=mime_type,
+                    language=language,
+                ):
+                    if sentence:
+                        await websocket.send_text(json.dumps({"type": "text", "text": sentence}))
+                        await tts_queue.put(sentence)
+            except Exception as e:
+                logger.error(f"Vision Stream Worker Error: {e}")
+            finally:
+                await tts_queue.put(None)
+
+        async def tts_worker():
+            lang_code = "hi-IN" if language.lower() in ["hindi", "hinglish"] else "en-IN"
+            
+            while True:
+                sentence = await tts_queue.get()
+                if sentence is None:
+                    break
+                try:
+                    audio_bytes = await sarvam_service.text_to_speech(
+                        text=sentence,
+                        language_code=lang_code,
+                        speaker="ashutosh"
+                    )
+                    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                    await websocket.send_text(json.dumps({
+                        "type": "audio",
+                        "data": audio_b64
+                    }))
+                except Exception as e:
+                    logger.error(f"Vision TTS Worker Error: {e}")
+        
+        await asyncio.gather(
+            vision_stream_worker(),
+            tts_worker()
+        )
+        await websocket.send_text(json.dumps({"type": "done"}))
+        await websocket.close()
+    except WebSocketDisconnect:
+        logger.info("Vision client disconnected")
+    except Exception as e:
+        logger.error(f"Vision stream error: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
