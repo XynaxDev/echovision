@@ -6,9 +6,9 @@
  */
 
 import React, { useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as Haptics from "expo-haptics";
 
 import { useAppTheme } from "../context/ThemeContext";
 
@@ -40,7 +40,7 @@ export function ObjectFinderScreen(): React.JSX.Element {
   }
 
   const toggleScanning = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    triggerHaptic("medium");
     setIsScanning(!isScanning);
   };
 

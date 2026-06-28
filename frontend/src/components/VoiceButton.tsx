@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useRef } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   Animated,
   Pressable,
@@ -14,10 +15,10 @@ import {
   Text,
   View,
 } from "react-native";
-import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 
 import { useAppTheme } from "../context/ThemeContext";
+import { CustomOrb } from "./CustomOrb";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -85,11 +86,11 @@ export function VoiceButton({
   }, [isRecording, pulseAnim, opacityAnim]);
 
   const handlePress = (): void => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     onPress();
   };
 
-  const buttonColor = isRecording ? colors.danger : colors.primary;
+  const buttonBorderColor = isRecording ? colors.danger : "#A855F7";
 
   return (
     <View
@@ -110,34 +111,66 @@ export function VoiceButton({
             width: size * 1.5,
             height: size * 1.5,
             borderRadius: size * 0.75,
-            borderColor: buttonColor,
+            borderColor: buttonBorderColor,
             transform: [{ scale: pulseAnim }],
             opacity: opacityAnim,
           },
         ]}
       />
 
-      {/* Main button */}
-      <Pressable
-        onPress={handlePress}
-        style={({ pressed }) => [
-          styles.button,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: buttonColor,
-            opacity: pressed ? 0.8 : 1,
-            transform: [{ scale: pressed ? 0.95 : 1 }],
-          },
-        ]}
-      >
-        {isRecording ? (
-          <Feather name="square" size={size * 0.4} color="#FFFFFF" fill="#FFFFFF" />
-        ) : (
-          <Feather name="mic" size={size * 0.4} color="#FFFFFF" />
-        )}
-      </Pressable>
+      {/* Glossy Obsidian Double Border Wrapper */}
+      <View style={{
+        width: size + 24,
+        height: size + 24,
+        borderRadius: (size + 24) / 2,
+        borderWidth: 4,
+        borderColor: "rgba(255, 255, 255, 0.7)", // Outer glassy ring, thicker and brighter
+        backgroundColor: "rgba(15, 15, 25, 0.8)", // Dark obsidian gap filler
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.6,
+        shadowRadius: 10,
+      }}>
+        {/* Inner border wrapper */}
+        <View style={{
+          width: size + 6,
+          height: size + 6,
+          borderRadius: (size + 6) / 2,
+          borderWidth: 2,
+          borderColor: "rgba(255, 255, 255, 0.5)", // Inner glassy ring
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          {/* Main button */}
+          <Pressable
+            onPress={handlePress}
+            style={({ pressed }) => [
+              styles.button,
+              {
+                width: size,
+                height: size,
+                borderRadius: size / 2,
+                opacity: pressed ? 0.8 : 1,
+                transform: [{ scale: pressed ? 0.95 : 1 }],
+                overflow: "hidden", // Ensures the background is cropped circularly
+              },
+            ]}
+          >
+            <CustomOrb size={size} />
+            
+            {/* Subtle dark tint to make icons more legible against the bright orb */}
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.15)", borderRadius: size / 2 }]} />
+
+            {isRecording ? (
+              <Feather name="square" size={size * 0.35} color="#FFFFFF" fill="#FFFFFF" style={styles.iconOverlay} />
+            ) : (
+              <Feather name="mic" size={size * 0.35} color="#FFFFFF" style={styles.iconOverlay} />
+            )}
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }
@@ -160,8 +193,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     elevation: 8,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    backgroundColor: "#000", // backup color before video loads
+  },
+  iconOverlay: {
+    position: "absolute",
+    zIndex: 10,
+    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
 });

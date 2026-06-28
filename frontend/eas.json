@@ -11,7 +11,19 @@
     "preview": {
       "distribution": "internal"
     },
-    "production": {}
+    "apk-optimized": {
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_USE_HERMES": "true"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
   },
   "submit": {
     "production": {}

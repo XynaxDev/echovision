@@ -10,14 +10,14 @@
  */
 
 import React, { useCallback, useRef, useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   Alert,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { AppText } from "../components/AppText";
 import { Audio } from "expo-av";
-import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import auth from "@react-native-firebase/auth";
@@ -91,7 +91,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
       setStatusMessage(t("listening"));
       setTranscript("");
 
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      triggerHaptic("heavy");
     } catch (error) {
       console.error("Failed to start recording:", error);
       setStep("error");
@@ -104,7 +104,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
       const recording = recordingRef.current;
       if (!recording) return;
 
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      triggerHaptic("heavy");
 
       // Stop recording
       setStep("transcribing");
@@ -165,7 +165,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
         setStatusMessage(confirmMsg);
         await playSarvamTTS(confirmMsg);
 
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        triggerHaptic("success");
         await new Promise((resolve) => setTimeout(resolve, 300));
         navigation.navigate("Settings");
         return;
@@ -181,7 +181,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
 
         if (intentResult.requiresResponse) {
           // Automated Loop: Re-open microphone for user reply
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          triggerHaptic("success");
           await startRecording();
           return; // Stay in the loop
         }
@@ -197,7 +197,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
         await playSarvamTTS(navigationText);
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      triggerHaptic("success");
 
       // Brief delay so user sees the result
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -206,7 +206,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
       const screenMap: Record<string, keyof RootStackParamList> = {
         Scanner: "SceneScanner",
         TextReader: "TextReader",
-        SOS: "SOS",
+        SOS: "SOSConfirmation",
         Dashboard: "Dashboard",
         Settings: "Settings",
       };
@@ -215,12 +215,14 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
 
       if (screenName === "Dashboard") {
         navigation.goBack();
+      } else if (screenName === "SOSConfirmation") {
+        navigation.navigate("SOSConfirmation", { source: "voice" });
       } else {
         navigation.navigate(screenName);
       }
     } catch (error) {
       console.error("Voice processing failed:", error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      triggerHaptic("error");
       setStep("error");
       setStatusMessage("Failed to process voice command. Please check your internet connection.");
       
@@ -254,20 +256,20 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
       {/* Status Header */}
       <View style={styles.statusContainer}>
         <View style={[styles.statusDot, { backgroundColor: getStepColor() }]} />
-        <Text style={[styles.statusText, { color: colors.text }]}>
+        <AppText style={[styles.statusText, { color: colors.text }]}>
           {statusMessage}
-        </Text>
+        </AppText>
       </View>
 
       {/* Transcript Display */}
       {transcript ? (
         <View style={[styles.transcriptCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.transcriptLabel, { color: colors.textSecondary }]}>
+          <AppText style={[styles.transcriptLabel, { color: colors.textSecondary }]}>
             You said:
-          </Text>
-          <Text style={[styles.transcriptText, { color: colors.text }]}>
+          </AppText>
+          <AppText style={[styles.transcriptText, { color: colors.text }]}>
             "{transcript}"
-          </Text>
+          </AppText>
         </View>
       ) : null}
 
@@ -279,13 +281,13 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
           size={120}
         />
 
-        <Text style={[styles.buttonHint, { color: colors.textSecondary }]}>
+        <AppText style={[styles.buttonHint, { color: colors.textSecondary }]}>
           {step === "idle"
             ? "Speak a command like:\n\"Scene dikhao\" or \"Text padho\""
             : step === "recording"
               ? "Listening..."
               : "Processing..."}
-        </Text>
+        </AppText>
       </View>
 
       {/* Pipeline Steps Indicator */}
@@ -311,7 +313,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
                     },
                   ]}
                 />
-                <Text
+                <AppText
                   style={[
                     styles.pipelineLabel,
                     {
@@ -321,7 +323,7 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
                   ]}
                 >
                   {stepLabels[index]}
-                </Text>
+                </AppText>
               </View>
             );
           },

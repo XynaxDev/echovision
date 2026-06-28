@@ -22,6 +22,7 @@ import { VoiceAssistantScreen } from "../screens/VoiceAssistantScreen";
 import { SceneScannerScreen } from "../screens/SceneScannerScreen";
 import { TextReaderScreen } from "../screens/TextReaderScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
+import { SOSConfirmationScreen } from "../screens/SOSConfirmationScreen";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Route Param List
@@ -35,7 +36,7 @@ export type RootStackParamList = {
   VoiceAssistant: undefined;
   SceneScanner: undefined;
   TextReader: undefined;
-  SOS: undefined;
+  SOSConfirmation: { source: "voice" | "manual" };
   Settings: undefined;
 };
 
@@ -137,7 +138,12 @@ export function AppNavigator(): React.JSX.Element {
       <Stack.Screen
         name="Settings"
         component={SettingsScreen}
-        options={{ title: "Settings" }}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="SOSConfirmation"
+        component={SOSConfirmationScreen}
+        options={{ headerShown: false }}
       />
       </Stack.Navigator>
   );

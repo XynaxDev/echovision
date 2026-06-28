@@ -49,7 +49,8 @@ const getApiBaseUrl = () => {
   return resolvedUrl;
 };
 
-const API_BASE_URL = getApiBaseUrl();
+export const API_BASE_URL = getApiBaseUrl();
+export const VISION_WS_URL = API_BASE_URL.replace("http://", "ws://").replace("https://", "wss://") + "/api/v1/vision/stream";
 
 const DEFAULT_HEADERS: Record<string, string> = {
   Accept: "application/json",

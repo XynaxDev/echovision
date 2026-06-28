@@ -4,13 +4,14 @@
     "slug": "echovision",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/app_logo.jpeg",
+    "icon": "./assets/echovisionapplogo_cropped.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "splash": {
-      "image": "./assets/app_logo.jpeg",
+      "image": "./assets/echovisionapplogo_cropped.png",
       "resizeMode": "contain",
-      "backgroundColor": "#121212"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true,
@@ -25,8 +26,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app_logo.jpeg",
-        "backgroundColor": "#121212"
+        "foregroundImage": "./assets/echovisionapplogo_cropped.png",
+        "backgroundColor": "#000000"
       },
       "package": "com.echovision.app",
       "googleServicesFile": "./google-services.json",
@@ -69,7 +70,15 @@
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

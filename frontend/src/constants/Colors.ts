@@ -54,50 +54,57 @@ export interface ThemeColors {
  * Background #121212 → Primary #00FF66 = contrast ratio ~12.3:1 (AAA)
  */
 export const DarkColors: ThemeColors = {
-  background: "#121212",
-  card: "#1C1C1E",
+  background: "#080A1A", // Deep Navy Dark
+  card: "#12142B", // Elevated Navy
   text: "#FFFFFF",
-  textSecondary: "#A1A1AA",
+  textSecondary: "rgba(255, 255, 255, 0.6)",
   textDisabled: "#52525B",
-  primary: "#3B82F6", // Premium modern blue
-  primaryDark: "#2563EB",
-  primaryLight: "#1E3A8A",
-  danger: "#EF4444",
-  dangerDark: "#B91C1C",
-  warning: "#F59E0B",
-  success: "#10B981",
-  border: "#2C2C2E",
-  overlay: "rgba(0, 0, 0, 0.7)",
-  icon: "#A1A1AA",
-  iconActive: "#3B82F6",
+  primary: "#0171DF", // Blue
+  primaryDark: "#0C4CB0",
+  primaryLight: "rgba(1, 113, 223, 0.2)",
+  danger: "#EF4444", // Red
+  dangerDark: "#DC2626",
+  warning: "#FFD140", // Yellow
+  success: "#3CAE8B", // Teal
+  border: "rgba(255, 255, 255, 0.08)",
+  overlay: "rgba(0, 0, 0, 0.8)",
+  icon: "#E5E5EA",
+  iconActive: "#FFFFFF",
   statusBar: "light",
   keyboard: "dark",
 };
 
-/**
- * Light Palette
- *
- * Designed for absolute clarity and contrast.
- */
 export const LightColors: ThemeColors = {
-  background: "#F2F2F7", // iOS grouped background style
+  background: "#F5F5F7", 
   card: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#52525B",
+  text: "#121660", // Warm Navy Text
+  textSecondary: "rgba(18, 22, 96, 0.65)",
   textDisabled: "#A1A1AA",
-  primary: "#2563EB", // Premium modern blue
-  primaryDark: "#1D4ED8",
-  primaryLight: "#DBEAFE",
-  danger: "#DC2626",
-  dangerDark: "#991B1B",
-  warning: "#D97706",
-  success: "#059669",
-  border: "#E5E5EA",
+  primary: "#0171DF", // Blue
+  primaryDark: "#121660",
+  primaryLight: "rgba(1, 113, 223, 0.1)",
+  danger: "#EF4444",
+  dangerDark: "#DC2626",
+  warning: "#FFD140",
+  success: "#3CAE8B",
+  border: "rgba(18, 22, 96, 0.1)",
   overlay: "rgba(0, 0, 0, 0.4)",
-  icon: "#52525B",
-  iconActive: "#2563EB",
+  icon: "#8E8E93",
+  iconActive: "#121660",
   statusBar: "dark",
   keyboard: "light",
+};
+
+export const SolidQuads = {
+  scanner: "#3CAE8B", // Teal Green
+  textReader: "#0171DF", // Vibrant Blue
+  sos: "#EF4444", // Red
+  settings: "#FFD140", // Yellow
+};
+
+export const Gradients = {
+  voicePill: ["#0171DF", "#8A2BE2", "#FF2A85"], // Soft AI gradient
+  voicePillInactive: ["#E5E5EA", "#8E8E93", "#1C1C1E"], // Metallic silver/grey/black gradient
 };
 
 /** Theme mode options persisted in AsyncStorage */

@@ -8,6 +8,7 @@
  */
 
 import React, { useCallback, useRef, useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   Animated,
   Pressable,
@@ -15,7 +16,6 @@ import {
   Text,
   View,
 } from "react-native";
-import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 
 import { useAppTheme } from "../context/ThemeContext";
@@ -72,7 +72,7 @@ export function SOSButton({
     startTime.current = Date.now();
 
     // Initial heavy haptic
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
 
     // Start progress animation
     Animated.timing(progressAnim, {
@@ -92,14 +92,14 @@ export function SOSButton({
         setIsHolding(false);
         setProgress(0);
         progressAnim.setValue(0);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        triggerHaptic("warning");
         onActivate();
       }
     }, 50);
 
     // Continuous haptic feedback during hold
     hapticTimer.current = setInterval(() => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      triggerHaptic("heavy");
     }, HAPTIC_INTERVAL_MS);
   }, [isProcessing, onActivate, cleanup, progressAnim]);
 

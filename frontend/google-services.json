@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "215054408557",
+    "project_id": "eco-vision-5c50f",
+    "storage_bucket": "eco-vision-5c50f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:215054408557:android:0ea5d7808b71c3a0799864",
+        "android_client_info": {
+          "package_name": "com.echovision.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADPpgcpse1_sB7Je0pn3W3lBHirAgckgo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

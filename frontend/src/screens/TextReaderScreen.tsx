@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   ActivityIndicator,
   Animated,
@@ -13,12 +14,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from "react-native";
+import { AppText } from "../components/AppText";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
-import * as Haptics from "expo-haptics";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -46,37 +48,30 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
   const soundRef = useRef<Audio.Sound | null>(null);
   const isStreamingRef = useRef(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const isMountedRef = useRef(true);
   const { t, language } = useLanguage();
 
-  const { registerContextualCommands, clearContextualCommands, isVoiceActive } = useVoiceContext();
+  const { registerContextualCommands, clearContextualCommands, isVoiceActive, pushToAudioQueue, interruptAudioQueue } = useVoiceContext();
 
   const cleanupAudio = useCallback(async () => {
     isStreamingRef.current = false;
     try {
+      interruptAudioQueue(); // Stop global voice queue if it was reading text
       if (soundRef.current) {
         await soundRef.current.stopAsync().catch(() => {});
         await soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
       }
     } catch {}
+  }, [interruptAudioQueue]);
+
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
   }, []);
 
-  useEffect(() => {
-    if (isVoiceActive) {
-      cleanupAudio();
-      setStep("camera");
-      setExtractedText("");
-    }
-  }, [isVoiceActive, cleanupAudio]);
-
   useFocusEffect(useCallback(() => cleanupAudio, [cleanupAudio]));
-  useEffect(() => {
-    registerContextualCommands({
-      onCapture: handleCapture,
-      onFlashlightToggle: () => setTorch((t) => !t),
-    });
-    return () => clearContextualCommands();
-  }, [torch]);
 
   // Pulse animation for extracting/reading state
   useEffect(() => {
@@ -123,6 +118,12 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
       if (!audioUri) continue;
       if (!isStreamingRef.current) break;
 
+      if (isVoiceActive) {
+         if (i === 0) interruptAudioQueue(); // Interrupt "Please wait..." only when the first chunk is ready
+         pushToAudioQueue(audioUri);
+         continue;
+      }
+
       try {
         const { sound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
         soundRef.current = sound;
@@ -138,17 +139,25 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
     }
     
     if (isStreamingRef.current) {
-      setStep("done");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      isStreamingRef.current = false;
+      if (!isVoiceActive) {
+          setStep("done");
+          triggerHaptic("success");
+          isStreamingRef.current = false;
+      } else {
+          // If Voice is active, the VoiceContext will handle playback. We just update the UI state.
+          setStep("done");
+          triggerHaptic("success");
+          isStreamingRef.current = false;
+      }
     }
   };
 
-  const handleCapture = useCallback(async (): Promise<void> => {
-    if (!cameraRef.current) return;
+  const handleCapture = useCallback(async (): Promise<boolean> => {
+    if (!cameraRef.current || step !== "camera") return false;
     try {
       cleanupAudio();
       setStep("capturing");
+      triggerHaptic("heavy", true);
 
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (!photo || !photo.uri) throw new Error("Failed to capture image");
@@ -156,8 +165,10 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
       setStep("reading");
       
       // PRE-AUDIO: Zero latency feedback to mask processing time
-      const preAudioTxt = language === "hindi" ? "मैं टेक्स्ट पढ़ रही हूँ..." : "Reading text...";
-      Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      if (!isVoiceActive) {
+        const preAudioTxt = language === "hindi" ? "मैं टेक्स्ट पढ़ रही हूँ..." : "Reading text...";
+        Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      }
 
       const ocrResult = await TextRecognition.recognize(photo.uri);
       const rawText = ocrResult.blocks.map((block) => block.text).join("\n").trim();
@@ -165,8 +176,8 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
       if (!rawText) {
         setStep("error");
         setExtractedText("No text detected. Please try again with a clearer image.");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        return;
+        triggerHaptic("warning");
+        return true;
       }
 
       // Format OCR text using NVIDIA
@@ -176,23 +187,56 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
       setStep("speaking");
 
       await streamChunkedTTS(cleaned_text, language_code);
+      return true;
     } catch (error) {
       console.error("Text reading failed:", error);
       setStep("error");
       setExtractedText("Failed to read text. Please try again.");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      triggerHaptic("error");
+      return false;
     }
   }, [step, cleanupAudio, language]);
 
+  useEffect(() => {
+    registerContextualCommands({
+      activePage: "Text Reader",
+      onCapture: handleCapture,
+      onFlashlightToggle: () => setTorch((t) => !t),
+      onVoiceToggle: async (isActive: boolean) => {
+        if (!isActive) {
+          const wasPlaying = soundRef.current !== null && isStreamingRef.current;
+          if (wasPlaying && soundRef.current) {
+            await soundRef.current.pauseAsync().catch(() => {});
+          }
+          
+          Speech.speak(language === "hindi" ? "वॉइस असिस्टेंट बंद" : "Voice Assistant Off", {
+            language: language === "hindi" ? "hi-IN" : "en-US",
+            onDone: () => {
+              if (wasPlaying && soundRef.current && isStreamingRef.current && isMountedRef.current) {
+                soundRef.current.playAsync().catch(() => {});
+              }
+            }
+          });
+        } else {
+          // If voice turns ON, we reset the reader to allow new queries
+          cleanupAudio();
+          setStep("camera");
+          setExtractedText("");
+        }
+      }
+    });
+    return () => clearContextualCommands();
+  }, [handleCapture, language, cleanupAudio, registerContextualCommands, clearContextualCommands]);
+
   const handleReset = useCallback(async (): Promise<void> => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    triggerHaptic("medium");
     cleanupAudio();
     setStep("camera");
     setExtractedText("");
   }, [cleanupAudio]);
 
   const handleReplay = useCallback(async (): Promise<void> => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     if (!extractedText) return;
 
     try {
@@ -210,7 +254,7 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
   if (!permission) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading camera...</Text>
+        <AppText style={[styles.loadingText, { color: colors.textSecondary }]}>Loading camera...</AppText>
       </View>
     );
   }
@@ -219,15 +263,15 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <Feather name="book-open" size={64} color={colors.text} style={{ marginBottom: 20 }} />
-        <Text style={[styles.permissionTitle, { color: colors.text }]}>Camera Access Required</Text>
-        <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
+        <AppText style={[styles.permissionTitle, { color: colors.text }]}>Camera Access Required</AppText>
+        <AppText style={[styles.permissionText, { color: colors.textSecondary }]}>
           EchoVision needs camera access to capture and read text.
-        </Text>
+        </AppText>
         <Pressable
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); requestPermission(); }}
+          onPress={() => { triggerHaptic("heavy"); requestPermission(); }}
           style={[styles.permissionButton, { backgroundColor: colors.primary }]}
         >
-          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+          <AppText style={styles.permissionButtonText}>Grant Permission</AppText>
         </Pressable>
       </View>
     );
@@ -248,12 +292,12 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
           <Pressable style={styles.iconButton} onPress={() => navigation.goBack()}>
             <Feather name="arrow-left" size={24} color="#FFF" />
           </Pressable>
-          <Text style={styles.headerTitle}>{t("text_reader")}</Text>
+          <AppText style={styles.headerTitle}>{t("text_reader")}</AppText>
         </View>
         <Pressable 
           style={[styles.iconButton, torch && styles.iconButtonActive]} 
           onPress={() => {
-            Haptics.selectionAsync();
+            triggerHaptic("light");
             setTorch(!torch);
           }}
         >
@@ -271,16 +315,16 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
             <View style={[styles.scannerCorner, styles.cornerBR, { borderColor: step === "capturing" ? colors.primary : "#1D74F5" }]} />
           </Animated.View>
           
-          <View style={[styles.bottomFloatingArea, { opacity: isVoiceActive ? 0 : 1 }]} pointerEvents={isVoiceActive ? "none" : "auto"}>
+          <View style={styles.bottomFloatingArea}>
             {step === "capturing" ? (
               <View style={styles.statusPill}>
                 <Feather name="loader" size={18} color="#FFF" style={{ marginRight: 8 }} />
-                <Text style={styles.statusText}>{t("capturing") || "Capturing..."}</Text>
+                <AppText style={styles.statusText}>{t("capturing") || "Capturing..."}</AppText>
               </View>
             ) : (
               <Pressable style={[styles.captureButton, { backgroundColor: colors.primary }]} onPress={handleCapture}>
                 <Feather name="book-open" size={24} color="#FFF" style={{ marginRight: 12 }} />
-                <Text style={styles.captureButtonText}>{t("read_text_btn") || "Read Text"}</Text>
+                <AppText style={styles.captureButtonText}>{t("read_text_btn") || "Read Text"}</AppText>
               </Pressable>
             )}
           </View>
@@ -300,19 +344,19 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
                     <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                       <Feather name="cpu" size={24} color={colors.primary} style={{ marginRight: 12 }} />
                     </Animated.View>
-                    <Text style={[styles.statusSub, { color: colors.textSecondary }]}>
+                    <AppText style={[styles.statusSub, { color: colors.textSecondary }]}>
                       {t("processing")}
-                    </Text>
+                    </AppText>
                   </View>
                 ) : (
                   <View>
                     <View style={styles.chatRow}>
                       <Feather name={step === "speaking" ? "volume-2" : "check-circle"} size={20} color={colors.primary} style={{ marginRight: 8 }} />
-                      <Text style={[styles.statusSub, { color: colors.primary, fontWeight: "700" }]}>
+                      <AppText style={[styles.statusSub, { color: colors.primary, fontWeight: "700" }]}>
                         {step === "speaking" ? (t("reading_aloud") || "Reading Aloud...") : "EchoVision OCR"}
-                      </Text>
+                      </AppText>
                     </View>
-                    <Text style={[styles.extractedText, { color: colors.text, marginTop: 8 }]}>{extractedText}</Text>
+                    <AppText style={[styles.extractedText, { color: colors.text, marginTop: 8 }]}>{extractedText}</AppText>
                   </View>
                 )}
               </View>
@@ -326,9 +370,9 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
                   onPress={handleReset}
                 >
                   <Feather name="camera" size={20} color={colors.text} style={{ marginRight: 8 }} />
-                  <Text style={[styles.actionBtnText, { color: colors.text }]} adjustsFontSizeToFit numberOfLines={1}>
+                  <AppText style={[styles.actionBtnText, { color: colors.text }]} adjustsFontSizeToFit numberOfLines={1}>
                     {language === "hindi" ? "रीटेक" : "Retake"}
-                  </Text>
+                  </AppText>
                 </Pressable>
 
                 {step === "done" && (
@@ -337,9 +381,9 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
                     onPress={handleReplay}
                   >
                     <Feather name="refresh-cw" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={[styles.actionBtnText, { color: "#FFF" }]} adjustsFontSizeToFit numberOfLines={1}>
+                    <AppText style={[styles.actionBtnText, { color: "#FFF" }]} adjustsFontSizeToFit numberOfLines={1}>
                       {t("replay_audio") || "Replay Audio"}
-                    </Text>
+                    </AppText>
                   </Pressable>
                 )}
               </View>
@@ -354,11 +398,11 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centerContent: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
-  loadingText: { fontFamily: "Nunito_400Regular", fontSize: 16 },
-  permissionTitle: { fontFamily: "Nunito_800ExtraBold", fontSize: 24, marginBottom: 12, textAlign: "center" },
-  permissionText: { fontFamily: "Nunito_400Regular", fontSize: 15, textAlign: "center", marginBottom: 32, lineHeight: 22 },
+  loadingText: { fontFamily: "Inter_400Regular", fontSize: 16 },
+  permissionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 24, marginBottom: 12, textAlign: "center" },
+  permissionText: { fontFamily: "Inter_400Regular", fontSize: 15, textAlign: "center", marginBottom: 32, lineHeight: 22 },
   permissionButton: { paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16 },
-  permissionButtonText: { fontFamily: "Nunito_700Bold", color: "#FFF", fontSize: 16 },
+  permissionButtonText: { fontFamily: "Inter_700Bold", color: "#FFF", fontSize: 16 },
 
   topBar: {
     position: "absolute",
@@ -375,7 +419,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   headerTitle: {
-    fontFamily: "Nunito_600SemiBold",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 20,
     fontWeight: "800",
     color: "#FFF",
@@ -389,6 +433,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: "rgba(0,0,0,0.4)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.25)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -433,7 +479,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
   },
-  captureButtonText: { fontFamily: "Nunito_700Bold", color: "#FFF", fontSize: 18 },
+  captureButtonText: { fontFamily: "Inter_700Bold", color: "#FFF", fontSize: 18 },
   
   statusPill: {
     flexDirection: "row",
@@ -443,7 +489,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 24,
   },
-  statusText: { fontFamily: "Nunito_600SemiBold", color: "#FFF", fontSize: 16 },
+  statusText: { fontFamily: "Inter_600SemiBold", color: "#FFF", fontSize: 16 },
 
   resultContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -475,9 +521,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   
-  statusHeader: { fontFamily: "Nunito_800ExtraBold", fontSize: 22, marginTop: 16, marginBottom: 8 },
-  statusSub: { fontFamily: "Nunito_400Regular", fontSize: 15 },
-  extractedText: { fontFamily: "Nunito_400Regular", fontSize: 16, lineHeight: 26 },
+  statusHeader: { fontFamily: "Inter_800ExtraBold", fontSize: 22, marginTop: 16, marginBottom: 8 },
+  statusSub: { fontFamily: "Inter_400Regular", fontSize: 15 },
+  extractedText: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 26 },
   
   actionRow: {
     flexDirection: "row",
@@ -494,5 +540,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginHorizontal: 6,
   },
-  actionBtnText: { fontFamily: "Nunito_700Bold", fontSize: 15 },
+  actionBtnText: { fontFamily: "Inter_700Bold", fontSize: 15 },
 });

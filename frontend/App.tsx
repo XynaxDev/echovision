@@ -29,13 +29,13 @@ LogBox.ignoreAllLogs(true);
 import { Feather } from "@expo/vector-icons";
 import {
   useFonts,
-  Nunito_400Regular,
-  Nunito_500Medium,
-  Nunito_600SemiBold,
-  Nunito_700Bold,
-  Nunito_800ExtraBold,
-  Nunito_900Black,
-} from "@expo-google-fonts/nunito";
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
+} from "@expo-google-fonts/inter";
 import {
   NavigationContainer,
   type NavigationContainerRef,
@@ -169,20 +169,38 @@ function AppInner(): React.JSX.Element {
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
 
   React.useEffect(() => {
+    // Load haptics setting from storage on app boot
+    import("@react-native-async-storage/async-storage").then(({ default: AsyncStorage }) => {
+      AsyncStorage.getItem("@setting_haptics").then(val => {
+        const hOn = val !== "false";
+        import("./src/utils/haptics").then(({ setHapticsEnabled }) => {
+          setHapticsEnabled(hOn);
+        });
+      });
+    });
+
     setNavigationDelegate((target: any, params?: any) => {
       if (navigationRef.current?.isReady()) {
-        navigationRef.current.navigate(target, params);
+        if (target === "GO_BACK") {
+          if (navigationRef.current.canGoBack()) {
+            navigationRef.current.goBack();
+          }
+        } else {
+          navigationRef.current.navigate(target, params);
+        }
       }
     });
   }, [setNavigationDelegate]);
 
   const [fontsLoaded] = useFonts({
-    Nunito_400Regular,
-    Nunito_500Medium,
-    Nunito_600SemiBold,
-    Nunito_700Bold,
-    Nunito_800ExtraBold,
-    Nunito_900Black,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
+    Inter_500Medium,
+    Inter_700Bold,
   });
 
 
@@ -198,6 +216,51 @@ function AppInner(): React.JSX.Element {
     );
   }
 
+  const toastConfig = {
+    success: ({ text1, text2, hide }: any) => (
+      <View style={[styles.toastContainer, { backgroundColor: isDark ? colors.card : "#FFFFFF", borderColor: isDark ? colors.border : "#E5E5EA" }]}>
+        <View style={[styles.toastIconBox, { backgroundColor: "#00E676" }]}>
+          <Feather name="check" size={14} color="#000" />
+        </View>
+        <View style={styles.toastTextContainer}>
+          <Text style={[styles.toastTitle, { color: isDark ? "#FFF" : "#1C1C1E" }]}>{text1}</Text>
+          {text2 ? <Text style={[styles.toastSubtitle, { color: isDark ? "#AAA" : "#3A3A3C" }]}>{text2}</Text> : null}
+        </View>
+        <Pressable onPress={hide} style={styles.toastCloseBtn}>
+          <Feather name="x" size={16} color={isDark ? "#888" : "#999"} />
+        </Pressable>
+      </View>
+    ),
+    error: ({ text1, text2, hide }: any) => (
+      <View style={[styles.toastContainer, { backgroundColor: isDark ? colors.card : "#FFFFFF", borderColor: isDark ? colors.border : "#E5E5EA" }]}>
+        <View style={[styles.toastIconBox, { backgroundColor: "#FF3B30" }]}>
+          <Feather name="x" size={14} color="#FFF" />
+        </View>
+        <View style={styles.toastTextContainer}>
+          <Text style={[styles.toastTitle, { color: isDark ? "#FFF" : "#1C1C1E" }]}>{text1}</Text>
+          {text2 ? <Text style={[styles.toastSubtitle, { color: isDark ? "#AAA" : "#3A3A3C" }]}>{text2}</Text> : null}
+        </View>
+        <Pressable onPress={hide} style={styles.toastCloseBtn}>
+          <Feather name="x" size={16} color={isDark ? "#888" : "#999"} />
+        </Pressable>
+      </View>
+    ),
+    info: ({ text1, text2, hide }: any) => (
+      <View style={[styles.toastContainer, { backgroundColor: isDark ? colors.card : "#FFFFFF", borderColor: isDark ? colors.border : "#E5E5EA" }]}>
+        <View style={[styles.toastIconBox, { backgroundColor: "#0171DF" }]}>
+          <Feather name="info" size={14} color="#FFF" />
+        </View>
+        <View style={styles.toastTextContainer}>
+          <Text style={[styles.toastTitle, { color: isDark ? "#FFF" : "#1C1C1E" }]}>{text1}</Text>
+          {text2 ? <Text style={[styles.toastSubtitle, { color: isDark ? "#AAA" : "#3A3A3C" }]}>{text2}</Text> : null}
+        </View>
+        <Pressable onPress={hide} style={styles.toastCloseBtn}>
+          <Feather name="x" size={16} color={isDark ? "#888" : "#999"} />
+        </Pressable>
+      </View>
+    )
+  };
+
   return (
     <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
@@ -205,6 +268,7 @@ function AppInner(): React.JSX.Element {
         <AppNavigator />
       </GlobalGestureWrapper>
       <GlobalVoiceOverlay />
+      <Toast config={toastConfig} />
     </NavigationContainer>
   );
 }
@@ -213,50 +277,7 @@ function AppInner(): React.JSX.Element {
 // App Root — Provides Theme Context
 // ═══════════════════════════════════════════════════════════════════════════
 
-const toastConfig = {
-  success: ({ text1, text2, hide }: any) => (
-    <View style={styles.toastContainer}>
-      <View style={[styles.toastIconBox, { backgroundColor: "rgba(34, 197, 94, 0.1)" }]}>
-        <Feather name="check-circle" size={20} color="#22c55e" />
-      </View>
-      <View style={styles.toastTextContainer}>
-        <Text style={styles.toastTitle}>{text1}</Text>
-        {text2 ? <Text style={styles.toastSubtitle}>{text2}</Text> : null}
-      </View>
-      <Pressable onPress={hide} style={styles.toastCloseBtn}>
-        <Feather name="x" size={16} color="#999" />
-      </Pressable>
-    </View>
-  ),
-  error: ({ text1, text2, hide }: any) => (
-    <View style={styles.toastContainer}>
-      <View style={[styles.toastIconBox, { backgroundColor: "rgba(239, 68, 68, 0.1)" }]}>
-        <Feather name="x-circle" size={20} color="#ef4444" />
-      </View>
-      <View style={styles.toastTextContainer}>
-        <Text style={styles.toastTitle}>{text1}</Text>
-        {text2 ? <Text style={styles.toastSubtitle}>{text2}</Text> : null}
-      </View>
-      <Pressable onPress={hide} style={styles.toastCloseBtn}>
-        <Feather name="x" size={16} color="#999" />
-      </Pressable>
-    </View>
-  ),
-  info: ({ text1, text2, hide }: any) => (
-    <View style={styles.toastContainer}>
-      <View style={[styles.toastIconBox, { backgroundColor: "rgba(59, 130, 246, 0.1)" }]}>
-        <Feather name="info" size={20} color="#3b82f6" />
-      </View>
-      <View style={styles.toastTextContainer}>
-        <Text style={styles.toastTitle}>{text1}</Text>
-        {text2 ? <Text style={styles.toastSubtitle}>{text2}</Text> : null}
-      </View>
-      <Pressable onPress={hide} style={styles.toastCloseBtn}>
-        <Feather name="x" size={16} color="#999" />
-      </Pressable>
-    </View>
-  )
-};
+// toast config moved to AppInner
 
 export default function App(): React.JSX.Element {
   return (
@@ -265,7 +286,6 @@ export default function App(): React.JSX.Element {
         <ThemeProvider>
           <VoiceProvider>
             <AppInner />
-            <Toast config={toastConfig} />
           </VoiceProvider>
         </ThemeProvider>
       </LanguageProvider>
@@ -284,24 +304,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   toastContainer: {
-    width: "90%",
-    backgroundColor: "#FFF",
-    borderRadius: 12,
+    width: "92%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
+    shadowRadius: 16,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "#E5E5EA",
   },
   toastIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -310,14 +331,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   toastTitle: {
-    fontFamily: "Nunito_700Bold",
+    fontFamily: "Inter_700Bold",
     fontSize: 15,
-    color: "#222",
+    color: "#1C1C1E",
   },
   toastSubtitle: {
-    fontFamily: "Nunito_500Medium",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 13,
-    color: "#666",
+    color: "#3A3A3C",
     marginTop: 2,
   },
   toastCloseBtn: {

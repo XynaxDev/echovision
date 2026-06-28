@@ -66,7 +66,7 @@ export function EdgeGlow({ active }: EdgeGlowProps): React.JSX.Element | null {
         { opacity: opacityAnim, transform: [{ scale }] },
       ]}
     >
-      <View style={[styles.ambientBorder, { borderColor: colors.primary }]} />
+      <View style={[styles.ambientBorder, { borderColor: "#8A2BE2" }]} />
     </Animated.View>
   );
 }

@@ -1,13 +1,15 @@
 /**
  * EchoVision — Global Voice Overlay (Gemini Style)
  *
- * A premium sliding pill overlay with liquid gradient animations.
+ * A premium sliding pill overlay with liquid gradient animations and glassmorphic blur.
  */
 
 import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { triggerHaptic } from "../utils/haptics";
+import { Animated, Dimensions, Pressable, StyleSheet, View, Platform, Easing } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { useAppTheme } from "../context/ThemeContext";
 import { useVoiceContext } from "../context/VoiceContext";
@@ -16,12 +18,15 @@ import { EdgeGlow } from "./EdgeGlow";
 const { width } = Dimensions.get("window");
 
 export function GlobalVoiceOverlay(): React.JSX.Element | null {
-  const { colors } = useAppTheme();
-  const { isVoiceActive, toggleVoice } = useVoiceContext();
+  const { colors, isDark } = useAppTheme();
+  const { isVoiceActive, activePage, toggleVoice } = useVoiceContext();
+
+  const showPill = isVoiceActive && activePage !== "Scene Scanner" && activePage !== "Text Reader" && activePage !== "SOSConfirmation";
 
   const slideAnim = useRef(new Animated.Value(150)).current; // Start off-screen
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleXAnim = useRef(new Animated.Value(1)).current;
+  const widthAnim = useRef(new Animated.Value(64)).current; // Start as circle
 
   // Blob Animations
   const blobX1 = useRef(new Animated.Value(-40)).current;
@@ -29,8 +34,11 @@ export function GlobalVoiceOverlay(): React.JSX.Element | null {
   const blobScale1 = useRef(new Animated.Value(1)).current;
   const blobScale2 = useRef(new Animated.Value(1)).current;
 
+  const blobY1 = useRef(new Animated.Value(-10)).current;
+  const blobY2 = useRef(new Animated.Value(10)).current;
+
   useEffect(() => {
-    if (isVoiceActive) {
+    if (showPill) {
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -49,36 +57,13 @@ export function GlobalVoiceOverlay(): React.JSX.Element | null {
           tension: 80,
           friction: 10,
         }),
+        Animated.spring(widthAnim, {
+          toValue: width * 0.48,
+          useNativeDriver: false,
+          tension: 60,
+          friction: 8,
+        }),
       ]).start();
-
-      // Fluid Gradient Animations inside the pill
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(blobX1, { toValue: 20, duration: 2000, useNativeDriver: true }),
-          Animated.timing(blobX1, { toValue: -40, duration: 2500, useNativeDriver: true }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(blobX2, { toValue: -20, duration: 2200, useNativeDriver: true }),
-          Animated.timing(blobX2, { toValue: 40, duration: 1800, useNativeDriver: true }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(blobScale1, { toValue: 1.4, duration: 1500, useNativeDriver: true }),
-          Animated.timing(blobScale1, { toValue: 1, duration: 1500, useNativeDriver: true }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(blobScale2, { toValue: 1.5, duration: 1800, useNativeDriver: true }),
-          Animated.timing(blobScale2, { toValue: 1, duration: 1800, useNativeDriver: true }),
-        ])
-      ).start();
 
     } else {
       Animated.parallel([
@@ -97,55 +82,102 @@ export function GlobalVoiceOverlay(): React.JSX.Element | null {
           duration: 300,
           useNativeDriver: true,
         }),
+        Animated.timing(widthAnim, {
+          toValue: 64,
+          duration: 250,
+          useNativeDriver: false,
+        }),
       ]).start();
-      
-      blobX1.stopAnimation(); blobX2.stopAnimation();
-      blobScale1.stopAnimation(); blobScale2.stopAnimation();
     }
-  }, [isVoiceActive]);
+  }, [showPill]);
+
+  // Run blob animations continuously in the background to prevent glitchy resets
+  useEffect(() => {
+    const createLoop = (val: Animated.Value, to1: number, to2: number, to3: number, dur1: number, dur2: number, dur3: number) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(val, { toValue: to1, duration: dur1, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(val, { toValue: to2, duration: dur2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(val, { toValue: to3, duration: dur3, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ])
+      ).start();
+    };
+
+    // Wavy horizontal sweeps mimicking sound waves
+    createLoop(blobX1, 70, -60, 0, 1200, 1400, 1300);
+    createLoop(blobX2, -70, 60, 0, 1300, 1200, 1400);
+    
+    // Rapid vertical bouncing (wavy effect)
+    createLoop(blobY1, 40, -40, 0, 800, 900, 850);
+    createLoop(blobY2, -40, 40, 0, 900, 850, 950);
+    
+    // Gentle pulsating scales (no crazy heartbeat)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(blobScale1, { toValue: 1.4, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(blobScale1, { toValue: 1.0, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(blobScale2, { toValue: 1.5, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(blobScale2, { toValue: 1.1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
 
   return (
-    <Animated.View
+    <View
       pointerEvents={isVoiceActive ? "box-none" : "none"}
-      style={[
-        styles.overlayContainer,
-        {
-          opacity: fadeAnim,
-        },
-      ]}
+      style={styles.overlayContainer}
     >
       <EdgeGlow active={isVoiceActive} />
-
-      <Animated.View style={{ transform: [{ scaleX: scaleXAnim }, { translateY: slideAnim }] }}>
+      <Animated.View 
+        pointerEvents={showPill ? "auto" : "none"}
+        style={{ opacity: fadeAnim, transform: [{ scaleX: scaleXAnim }, { translateY: slideAnim }] }}
+      >
         <Pressable 
-          style={styles.pillContainer} 
+          style={styles.pillTouch}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            triggerHaptic("light");
             toggleVoice();
           }}
         >
-        {/* Animated Gradient Orbs inside Pill (Overflow Hidden) */}
-        <Animated.View
-          style={[
-            styles.gradientBlob,
-            { backgroundColor: "#00E5FF", transform: [{ translateX: blobX1 }, { scale: blobScale1 }] }, // Cyan
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.gradientBlob,
-            { backgroundColor: "#FF007F", left: 80, transform: [{ translateX: blobX2 }, { scale: blobScale2 }] }, // Deep Pink
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.gradientBlob,
-            { backgroundColor: "#8A2BE2", left: 160, opacity: 0.8 }, // Blue Violet
-          ]}
-        />
-      </Pressable>
+          <Animated.View
+            style={[
+              styles.pillContainer, 
+              {
+                width: widthAnim,
+                backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                borderColor: isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.12)",
+                shadowColor: "#00E5FF", // Neon Cyan glow
+              }
+            ]} 
+          >
+            <BlurView intensity={60} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFillObject}>
+              {/* Animated Gradient Orbs inside Pill (Overflow Hidden) */}
+              <Animated.View style={[styles.gradientBlob, { left: 10, transform: [{ translateX: blobX1 }, { translateY: blobY1 }, { scale: blobScale1 }] }]}>
+                <LinearGradient colors={["rgba(0,229,255,0.9)", "rgba(0,229,255,0)"]} start={{x:0.5, y:0.5}} end={{x:1, y:1}} style={StyleSheet.absoluteFillObject} />
+              </Animated.View>
+              
+              <Animated.View style={[styles.gradientBlob, { left: 60, transform: [{ translateX: blobX2 }, { translateY: blobY2 }, { scale: blobScale2 }] }]}>
+                <LinearGradient colors={["rgba(230,240,255,0.95)", "rgba(230,240,255,0)"]} start={{x:0.5, y:0.5}} end={{x:0, y:0}} style={StyleSheet.absoluteFillObject} />
+              </Animated.View>
+              
+              <Animated.View style={[styles.gradientBlob, { left: 110, transform: [{ translateX: blobX1 }, { translateY: blobY2 }, { scale: blobScale2 }] }]}>
+                <LinearGradient colors={["rgba(255,0,127,0.85)", "rgba(255,0,127,0)"]} start={{x:0.5, y:0.5}} end={{x:1, y:0}} style={StyleSheet.absoluteFillObject} />
+              </Animated.View>
+              
+              {/* Highlight Sweep */}
+              <Animated.View style={[styles.gradientBlob, { left: 80, transform: [{ translateX: blobX2 }, { translateY: blobY1 }, { scale: blobScale1 }] }]}>
+                <LinearGradient colors={["rgba(138,43,226,0.9)", "rgba(138,43,226,0)"]} start={{x:0.5, y:0.5}} end={{x:0, y:1}} style={StyleSheet.absoluteFillObject} />
+              </Animated.View>
+            </BlurView>
+          </Animated.View>
+        </Pressable>
       </Animated.View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -154,41 +186,31 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: "flex-end",
     alignItems: "center",
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === "ios" ? 28 : 20, // Match center alignment of bottom navbar
     zIndex: 99999, // Ensure it floats above absolutely everything
   },
-  edgeGlow: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-    borderWidth: 6,
-    borderColor: "rgba(0, 229, 255, 0.4)", // Cyan edge glow
-    shadowColor: "#00E5FF",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 15,
+  pillTouch: {
+    padding: 8, // Increase touch target size
   },
   pillContainer: {
-    width: width * 0.6,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#18181B",
     overflow: "hidden", // Crucial for Gemini style mask
     justifyContent: "center",
     alignItems: "center",
     elevation: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    shadowColor: "#00E5FF", // Vibrant glowing cyan shadow to match theme
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    borderWidth: 1.5,
   },
   gradientBlob: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    filter: "blur(18px)", // Smooths the circles into a liquid gradient
-    opacity: 0.95,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    filter: "blur(28px)", // Heavy blur for seamless liquid plasma effect
+    opacity: 1, 
   },
 });

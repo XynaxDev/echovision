@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useRef } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   Animated,
   Pressable,
@@ -14,7 +15,6 @@ import {
   Text,
   View,
 } from "react-native";
-import * as Haptics from "expo-haptics";
 
 import { useAppTheme } from "../context/ThemeContext";
 import type { ThemeMode } from "../constants/Colors";
@@ -56,7 +56,7 @@ export function ThemeSegmentedControl(): React.JSX.Element {
   }, [selectedIndex, slideAnim]);
 
   const handleSelect = (mode: ThemeMode): void => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     setThemeMode(mode);
   };
 

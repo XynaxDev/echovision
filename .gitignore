@@ -17,8 +17,8 @@ frontend/dist/
 frontend/web-build/
 frontend/ios/
 frontend/android/
-frontend/google-services.json
-frontend/GoogleService-Info.plist
+# frontend/google-services.json
+# frontend/GoogleService-Info.plist
 
 # Backend specific overrides
 backend/.venv/

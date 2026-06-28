@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useRef, useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,15 +21,16 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
+  Image,
 } from "react-native";
-import * as Haptics from "expo-haptics";
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { useAppTheme } from "../context/ThemeContext";
+import { AppText } from "../components/AppText";
+import { GridPattern } from "../components/GridPattern";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { verifyPhoneAuth } from "../services/api";
 import { Feather } from "@expo/vector-icons";
@@ -46,7 +48,7 @@ type AuthStep = "details" | "otp";
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function AuthScreen({ navigation }: Props): React.JSX.Element {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   
   const [step, setStep] = useState<AuthStep>("details");
   const [isLoading, setIsLoading] = useState(false);
@@ -72,7 +74,7 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     setIsLoading(true);
 
     try {
@@ -104,18 +106,22 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     setIsLoading(true);
 
     try {
       // 1. Verify locally with Firebase SDK
       await confirm.confirm(otp);
       
+      if (auth().currentUser) {
+          await auth().currentUser?.updateProfile({ displayName: name.trim() });
+      }
+      
       // 2. Relay the secure session to our FastAPI Backend Database Gate
       // The backend gets the JWT via `api.ts` interceptor and registers the user.
       await verifyPhoneAuth(name.trim(), `+91${phone}`);
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      triggerHaptic("success");
       navigation.reset({ index: 0, routes: [{ name: "Dashboard" }] });
     } catch (error: any) {
       console.error("OTP Verification Error:", error);
@@ -131,7 +137,7 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
 
   // ── Back Navigation ──────────────────────────────────────────────────
   const handleBack = useCallback((): void => {
-    Haptics.selectionAsync();
+    triggerHaptic("light");
     setStep("details");
     setOtp("");
     setConfirm(null);
@@ -142,29 +148,49 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      <GridPattern color={colors.textSecondary} opacity={isDark ? 0.08 : 0.05} spacing={24} />
+      
+      {/* Top Back Button */}
+      <Pressable 
+        style={styles.topBackButton} 
+        onPress={() => step === "otp" ? setStep("details") : navigation.goBack()}
+      >
+        <Feather name="arrow-left" size={24} color={colors.text} />
+      </Pressable>
+
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoIcon}>
-            <Feather name="eye" size={64} color={colors.primary} />
+            <Image 
+              source={require("../../assets/echovisionapplogo_cropped.png")} 
+              style={{ width: 60, height: 60 }} 
+              resizeMode="contain"
+            />
           </View>
-          <Text style={[styles.appName, { color: colors.primary }]}>EchoVision</Text>
-          <Text style={[styles.tagline, { color: colors.textSecondary }]}>Accessibility for Everyone</Text>
+          <AppText style={[styles.appName, { color: colors.text }]}>EchoVision</AppText>
+          <AppText style={[styles.tagline, { color: colors.textSecondary }]}>Accessibility for Everyone</AppText>
         </View>
 
         {/* Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[
+          styles.card, 
+          { 
+            backgroundColor: colors.card, 
+            borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(18, 22, 96, 0.06)",
+          }
+        ]}>
           
           {/* ─────────────────────────────────────────────────────────── */}
           {/* DETAILS MODE (Name + Phone) */}
           {/* ─────────────────────────────────────────────────────────── */}
           {step === "details" ? (
             <>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Welcome</Text>
-              <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+              <AppText style={[styles.cardTitle, { color: colors.text }]}>Welcome</AppText>
+              <AppText style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
                 Enter your details to register or login instantly.
-              </Text>
+              </AppText>
 
               <TextInput
                 style={[styles.input, { color: colors.text, borderColor: colors.border }]}
@@ -177,7 +203,7 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
               />
 
               <View style={[styles.phoneInputRow, { borderColor: colors.border }]}>
-                <Text style={[styles.countryCode, { color: colors.textSecondary }]}>+91</Text>
+                <AppText style={[styles.countryCode, { color: colors.textSecondary }]}>+91</AppText>
                 <TextInput
                   style={[styles.phoneInput, { color: colors.text }]}
                   placeholder="Phone Number"
@@ -203,29 +229,24 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
                 accessibilityLabel="Send Verification Code button"
                 accessibilityRole="button"
               >
-                <Text style={[styles.buttonText, { color: colors.background }]}>
+                <AppText style={[styles.buttonText, { color: "#FFF" }]}>
                   {isLoading ? "Sending..." : "Send Verification Code"}
-                </Text>
+                </AppText>
               </Pressable>
             </>
           ) : (
             /* ─────────────────────────────────────────────────────────── */
             /* OTP MODE */
             /* ─────────────────────────────────────────────────────────── */
-            <>
-              <Pressable
-                onPress={handleBack}
-                style={styles.backButton}
-                accessibilityLabel="Go back to details"
-                accessibilityRole="button"
-              >
-                <Text style={[styles.backText, { color: colors.primary }]}>← Change Details</Text>
-              </Pressable>
-
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Verify Phone</Text>
-              <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
-                Enter the 6-digit code sent to +91 {phone}
-              </Text>
+            <View style={{ paddingTop: 16 }}>
+              <View style={styles.otpHeaderRow}>
+                <View style={styles.otpHeaderTitles}>
+                  <AppText style={[styles.cardTitle, { color: colors.text, marginBottom: 4 }]}>Verify Phone</AppText>
+                  <AppText style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+                    Code sent to +91 {phone}
+                  </AppText>
+                </View>
+              </View>
 
               <TextInput
                 ref={otpInputRef}
@@ -250,11 +271,11 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
                 accessibilityLabel="Verify and Continue button"
                 accessibilityRole="button"
               >
-                <Text style={[styles.buttonText, { color: colors.background }]}>
-                  {isLoading ? "Verifying..." : "Verify & Continue"}
-                </Text>
+                <AppText style={[styles.buttonText, { color: "#FFF" }]}>
+                  {isLoading ? "Verifying..." : "Verify Code"}
+                </AppText>
               </Pressable>
-            </>
+            </View>
           )}
 
         </View>
@@ -277,36 +298,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 40,
   },
+  topBackButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 60 : 40,
+    left: 24,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+  },
   header: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 32,
   },
   logoIcon: {
     marginBottom: 12,
   },
   appName: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: 2,
+    fontSize: 34,
+    fontFamily: "Inter_900Black",
+    letterSpacing: 0.5,
   },
   tagline: {
-    fontSize: 16,
-    fontWeight: "400",
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
     marginTop: 4,
   },
   card: {
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 24,
+    borderWidth: 1.5,
     padding: 24,
+    paddingBottom: 32,
     marginBottom: 24,
+    width: "100%",
   },
   cardTitle: {
     fontSize: 24,
-    fontWeight: "700",
+    fontFamily: "Inter_800ExtraBold",
     marginBottom: 8,
   },
   cardSubtitle: {
     fontSize: 14,
+    fontFamily: "Inter_500Medium",
     lineHeight: 20,
     marginBottom: 24,
   },
@@ -317,6 +350,7 @@ const styles = StyleSheet.create({
     height: 56,
     marginBottom: 16,
     fontSize: 16,
+    fontFamily: "Inter_500Medium",
   },
   phoneInputRow: {
     flexDirection: "row",
@@ -328,14 +362,14 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   countryCode: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
     marginRight: 12,
   },
   phoneInput: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: "500",
+    fontSize: 17,
+    fontFamily: "Inter_500Medium",
     letterSpacing: 1,
   },
   otpInput: {
@@ -343,28 +377,34 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 20,
     height: 64,
-    fontSize: 32,
-    fontWeight: "700",
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
     letterSpacing: 12,
     textAlign: "center",
     marginBottom: 24,
   },
+  otpHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 24,
+  },
+  otpHeaderTitles: {
+    flex: 1,
+  },
   button: {
     height: 56,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     letterSpacing: 0.5,
   },
   backButton: {
-    marginBottom: 16,
-  },
-  backText: {
-    fontSize: 14,
-    fontWeight: "600",
+    padding: 4,
+    marginRight: 12,
+    marginLeft: -4,
   },
 });

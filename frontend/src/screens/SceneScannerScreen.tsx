@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { triggerHaptic } from "../utils/haptics";
 import {
   ActivityIndicator,
   Animated,
@@ -15,22 +16,23 @@ import {
   StyleSheet,
   Text,
   View,
+  Vibration,
 } from "react-native";
+import { AppText } from "../components/AppText";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
-import * as Haptics from "expo-haptics";
-import { readAsStringAsync, EncodingType } from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { BlurView } from "expo-blur";
 
 import { useAppTheme } from "../context/ThemeContext";
 import { useLanguage } from "../context/LanguageContext";
 import { useVoiceContext } from "../context/VoiceContext";
-import { scanScene, textToSpeech } from "../services/api";
+import { scanScene, textToSpeech, VISION_WS_URL } from "../services/api";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SceneScanner">;
@@ -46,37 +48,39 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
   const [torch, setTorch] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const isFocused = useIsFocused();
   const soundRef = useRef<Audio.Sound | null>(null);
   const isMountedRef = useRef(true);
   const isStreamingRef = useRef(false);
+  const capturingRef = useRef(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fullAudioSequence = useRef<string[]>([]);
 
-  const { registerContextualCommands, clearContextualCommands, isVoiceActive } = useVoiceContext();
+  const { registerContextualCommands, clearContextualCommands, isVoiceActive, pushToAudioQueue, interruptAudioQueue } = useVoiceContext();
 
   const cleanupAudio = useCallback(async () => {
     try {
+      interruptAudioQueue(); // Stop global voice queue if it was playing scene scanner results
       if (soundRef.current) {
         await soundRef.current.stopAsync().catch(() => {});
         await soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
       }
+      for (const uri of fullAudioSequence.current) {
+         try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch (e) {}
+      }
+      fullAudioSequence.current = [];
     } catch {}
-  }, []);
+  }, [interruptAudioQueue]);
 
-  useEffect(() => {
-    if (isVoiceActive) {
-      cleanupAudio();
-      setStep("camera");
-      setDescription("");
-      setCapturedImageUri(null);
-    }
-  }, [isVoiceActive, cleanupAudio]);
+
 
   useFocusEffect(
     useCallback(() => {
       isMountedRef.current = true;
       return () => {
         isMountedRef.current = false;
+        setTorch(false); // Turn off flashlight when leaving screen
         cleanupAudio();
       };
     }, [cleanupAudio])
@@ -90,13 +94,6 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
     };
   }, []);
 
-  useEffect(() => {
-    registerContextualCommands({
-      onCapture: handleCapture,
-      onFlashlightToggle: () => setTorch((t) => !t),
-    });
-    return () => clearContextualCommands();
-  }, [torch]);
 
   // Pulse animation for analyzing state
   useEffect(() => {
@@ -155,58 +152,216 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
     
     if (isStreamingRef.current) {
       setStep("done");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      triggerHaptic("success");
       isStreamingRef.current = false;
     }
   };
 
-  const handleCapture = useCallback(async (): Promise<void> => {
-    if (!cameraRef.current || step !== "camera") return;
+  const isCameraReadyRef = useRef(false);
+  const lastCaptureAttemptRef = useRef(0);
 
+  const handleCapture = useCallback(async (): Promise<boolean> => {
+    if (!cameraRef.current || step !== "camera" || capturingRef.current || !isCameraReadyRef.current) return false;
+
+    // Throttle hardware calls to once every 1000ms to prevent locking up the Android Camera2 API.
+    // The VoiceContext polling loop hits this every 100ms, so we must shield the hardware.
+    const now = Date.now();
+    if (now - lastCaptureAttemptRef.current < 1000) {
+      return false; // Hardware is shielded; let the VoiceContext poll keep retrying
+    }
+    lastCaptureAttemptRef.current = now;
+
+    capturingRef.current = true;
+    
+    // Use legacy Vibration API (via isBackground=true flag) because Android 13+ blocks expo-haptics when triggered via Voice Assistant (WebSocket) instead of a direct screen touch
+    triggerHaptic("heavy", true);
+
+    // ── PHASE 1: Camera Hardware ──
+    // If the camera hardware isn't ready yet (e.g. just navigated here),
+    // takePictureAsync will throw. We silently reset and let the poll retry.
+    let photo;
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setStep("capturing");
-
-      const photo = await cameraRef.current.takePictureAsync({
+      photo = await cameraRef.current.takePictureAsync({
         base64: true,
         quality: 0.7,
       });
+    } catch (cameraError) {
+      // Camera hardware not initialized yet — silently allow retry
+      console.log("Camera not ready yet, throttling for 1s...", cameraError);
+      capturingRef.current = false;
+      return false;
+    }
 
-      if (!photo || !photo.uri) throw new Error("Failed to capture image");
+    if (!photo || !photo.uri) {
+      capturingRef.current = false;
+      return false;
+    }
+
+    // ── PHASE 2: Photo taken successfully — process it ──
+    try {
+      triggerHaptic("heavy");
+      setStep("capturing");
 
       setCapturedImageUri(photo.uri);
       setStep("analyzing");
+      setDescription("");
+      fullAudioSequence.current = [];
 
       // PRE-AUDIO: Zero latency feedback to mask upload/processing time
-      const preAudioTxt = language === "hindi" ? "कृपया मुझे एक पल दें, मैं विश्लेषण कर रही हूँ..." : "Please give me a moment, I'm analyzing...";
-      Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      if (!isVoiceActive) {
+        // Expo Speech uses the device's local TTS which is typically female, so we use female grammar here.
+        const preAudioTxt = language === "hindi" ? "मैं विश्लेषण कर रही हूँ, थोड़ा समय दें।" : "I'm analyzing, please give me a moment.";
+        Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      } else {
+        // Strictly stop any lingering local speech if Voice AI is active
+        Speech.stop();
+      }
 
-      const base64 = await readAsStringAsync(photo.uri, { encoding: EncodingType.Base64 });
-      const scanResult = await scanScene(base64, language);
-      const sceneDescription = scanResult.description;
+      const base64 = await FileSystem.readAsStringAsync(photo.uri, { encoding: "base64" });
 
-      if (!isMountedRef.current) return;
+      isStreamingRef.current = true;
+      if (!isVoiceActive) {
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      }
 
-      setDescription(sceneDescription);
-      setStep("speaking");
+      const ws = new WebSocket(VISION_WS_URL);
+      
+      let audioQueue: string[] = [];
+      let isWsDone = false;
+      let isPlaying = false;
 
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const langCode = language === "hindi" ? "hi-IN" : "en-IN";
-      await streamChunkedTTS(sceneDescription, langCode);
+      const processAudioQueue = async () => {
+        if (isPlaying || !isStreamingRef.current) return;
+        if (audioQueue.length === 0) {
+           if (isWsDone && isStreamingRef.current) {
+              setStep("done");
+              triggerHaptic("success");
+              isStreamingRef.current = false;
+           }
+           return;
+        }
+        
+        isPlaying = true;
+        const fileUri = audioQueue.shift()!;
+        
+        try {
+          const { sound } = await Audio.Sound.createAsync({ uri: fileUri }, { shouldPlay: true });
+          soundRef.current = sound;
+          
+          await new Promise<void>((resolve) => {
+            sound.setOnPlaybackStatusUpdate((status) => {
+              if (status.isLoaded && status.didJustFinish) resolve();
+            });
+          });
+        } catch (e) {
+          console.warn("Playback failed for chunk", e);
+        } finally {
+          isPlaying = false;
+          processAudioQueue();
+        }
+      };
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ image_base64: base64, language }));
+      };
+
+      ws.onmessage = async (e) => {
+        if (!isStreamingRef.current) {
+          ws.close();
+          return;
+        }
+
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'text') {
+             setStep(prev => prev === "analyzing" ? "speaking" : prev);
+             setDescription(prev => (prev + " " + data.text).trim());
+          } else if (data.type === 'done') {
+             isWsDone = true;
+             if (!isVoiceActive) processAudioQueue();
+          } else if (data.type === 'audio') {
+             const fileUri = `${FileSystem.cacheDirectory}vision_ws_${Date.now()}_${Math.random()}.wav`;
+             await FileSystem.writeAsStringAsync(fileUri, data.data, {
+               encoding: "base64",
+             });
+             
+             if (isVoiceActive) {
+                 pushToAudioQueue(fileUri);
+             } else {
+                 audioQueue.push(fileUri);
+                 fullAudioSequence.current.push(fileUri);
+                 processAudioQueue();
+             }
+          }
+        } catch (err) {
+          console.warn("WS Message Parsing Error", err);
+        }
+      };
+
+      ws.onerror = (err) => {
+         console.error("WS Error", err);
+         if (isMountedRef.current) {
+            setStep(prev => prev !== "speaking" ? "error" : prev);
+            setDescription("Failed to stream scene. Please try again.");
+         }
+      };
+
+      ws.onclose = () => {
+         isWsDone = true;
+         processAudioQueue();
+      };
+
+      return true; // Photo taken and processing initiated
 
     } catch (error) {
       console.error("Scene scan failed:", error);
       if (isMountedRef.current) {
+        capturingRef.current = false;
         setStep("error");
         setDescription("Failed to analyze scene. Please try again.");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        triggerHaptic("error");
       }
+      return false;
     }
-  }, [step, language]);
+  }, [step, language, isVoiceActive, cleanupAudio]);
+
+  useEffect(() => {
+    registerContextualCommands({
+      activePage: "Scene Scanner",
+      onCapture: handleCapture,
+      onFlashlightToggle: () => setTorch(t => !t),
+      onVoiceToggle: async (isActive: boolean) => {
+        if (!isActive) {
+          const wasPlaying = soundRef.current !== null && isStreamingRef.current;
+          if (wasPlaying && soundRef.current) {
+            await soundRef.current.pauseAsync().catch(() => {});
+          }
+          
+          Speech.speak(language === "hindi" ? "वॉइस असिस्टेंट बंद" : "Voice Assistant Off", {
+            language: language === "hindi" ? "hi-IN" : "en-US",
+            onDone: () => {
+              if (wasPlaying && soundRef.current && isStreamingRef.current && isMountedRef.current) {
+                soundRef.current.playAsync().catch(() => {});
+              }
+            }
+          });
+        } else {
+          // If voice turns ON, we reset the scanner to allow new queries
+          cleanupAudio();
+          capturingRef.current = false;
+          setStep("camera");
+          setDescription("");
+          setCapturedImageUri(null);
+        }
+      }
+    });
+    return () => clearContextualCommands();
+  }, [handleCapture, language, cleanupAudio, registerContextualCommands, clearContextualCommands]);
 
   const handleReset = useCallback(async (): Promise<void> => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    triggerHaptic("heavy");
     await cleanupAudio();
+    capturingRef.current = false;
     setStep("camera");
     setDescription("");
     setCapturedImageUri(null);
@@ -218,20 +373,43 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
   }, [cleanupAudio, navigation]);
 
   const handleReplay = useCallback(async (): Promise<void> => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    if (!description) return;
+    triggerHaptic("heavy");
+    if (!description || fullAudioSequence.current.length === 0) return;
 
     try {
       setStep("speaking");
       if (soundRef.current) await soundRef.current.unloadAsync();
 
-      const audioUri = await textToSpeech(description);
-      const { sound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
-      soundRef.current = sound;
+      isStreamingRef.current = true;
+      const queue = [...fullAudioSequence.current];
+      let isPlaying = false;
 
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) setStep("done");
-      });
+      const processQueue = async () => {
+        if (isPlaying || !isStreamingRef.current) return;
+        if (queue.length === 0) {
+           setStep("done");
+           isStreamingRef.current = false;
+           return;
+        }
+        isPlaying = true;
+        const fileUri = queue.shift()!;
+        try {
+          const { sound } = await Audio.Sound.createAsync({ uri: fileUri }, { shouldPlay: true });
+          soundRef.current = sound;
+          await new Promise<void>((resolve) => {
+            sound.setOnPlaybackStatusUpdate((status) => {
+              if (status.isLoaded && status.didJustFinish) resolve();
+            });
+          });
+        } catch (e) {
+          console.warn("Replay chunk failed", e);
+        } finally {
+          isPlaying = false;
+          processQueue();
+        }
+      };
+      
+      processQueue();
     } catch (error) {
       console.error("Replay failed:", error);
       setStep("done");
@@ -241,7 +419,7 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
   if (!permission) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading camera...</Text>
+        <AppText style={[styles.loadingText, { color: colors.textSecondary }]}>Loading camera...</AppText>
       </View>
     );
   }
@@ -250,15 +428,15 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <Feather name="camera" size={64} color={colors.text} style={{ marginBottom: 20 }} />
-        <Text style={[styles.permissionTitle, { color: colors.text }]}>Camera Access Required</Text>
-        <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
+        <AppText style={[styles.permissionTitle, { color: colors.text }]}>Camera Access Required</AppText>
+        <AppText style={[styles.permissionText, { color: colors.textSecondary }]}>
           EchoVision needs camera access to scan and describe your surroundings.
-        </Text>
+        </AppText>
         <Pressable
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); requestPermission(); }}
+          onPress={() => { triggerHaptic("heavy"); requestPermission(); }}
           style={[styles.permissionButton, { backgroundColor: colors.primary }]}
         >
-          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+          <AppText style={styles.permissionButtonText}>Grant Permission</AppText>
         </Pressable>
       </View>
     );
@@ -267,11 +445,10 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
   return (
     <View style={[styles.container, { backgroundColor: "#000" }]}>
       {/* ── FULLSCREEN CAMERA ── */}
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing="back" enableTorch={torch}>
-        {step !== "camera" && step !== "capturing" && (
-          <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFillObject} />
-        )}
-      </CameraView>
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing="back" enableTorch={torch} onCameraReady={() => { isCameraReadyRef.current = true; }} />
+      {step !== "camera" && step !== "capturing" && (
+        <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFillObject} />
+      )}
 
       {/* ── FLOATING TOP BAR ── */}
       <View style={styles.topBar}>
@@ -279,12 +456,12 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
           <Pressable style={styles.iconButton} onPress={handleBack}>
             <Feather name="arrow-left" size={24} color="#FFF" />
           </Pressable>
-          <Text style={styles.headerTitle}>{t("scene_scanner")}</Text>
+          <AppText style={styles.headerTitle}>{t("scene_scanner")}</AppText>
         </View>
         <Pressable 
           style={[styles.iconButton, torch && styles.iconButtonActive]} 
           onPress={() => {
-            Haptics.selectionAsync();
+            triggerHaptic("light");
             setTorch(!torch);
           }}
         >
@@ -302,16 +479,16 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
             <View style={[styles.scannerCorner, styles.cornerBR, { borderColor: step === "capturing" ? colors.primary : "#1D74F5" }]} />
           </Animated.View>
           
-          <View style={[styles.bottomFloatingArea, { opacity: isVoiceActive ? 0 : 1 }]} pointerEvents={isVoiceActive ? "none" : "auto"}>
+          <View style={styles.bottomFloatingArea}>
             {step === "capturing" ? (
               <View style={styles.statusPill}>
                 <Feather name="loader" size={18} color="#FFF" style={{ marginRight: 8 }} />
-                <Text style={styles.statusText}>{t("capturing") || "Capturing..."}</Text>
+                <AppText style={styles.statusText}>{t("capturing") || "Capturing..."}</AppText>
               </View>
             ) : (
               <Pressable style={[styles.captureButton, { backgroundColor: colors.primary }]} onPress={handleCapture}>
                 <Feather name="camera" size={24} color="#FFF" style={{ marginRight: 12 }} />
-                <Text style={styles.captureButtonText}>{t("describe_scene") || "Describe Scene"}</Text>
+                <AppText style={styles.captureButtonText}>{t("describe_scene") || "Describe Scene"}</AppText>
               </Pressable>
             )}
           </View>
@@ -338,19 +515,19 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
                     <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                       <Feather name="cpu" size={24} color={colors.primary} style={{ marginRight: 12 }} />
                     </Animated.View>
-                    <Text style={[styles.statusSub, { color: colors.textSecondary }]}>
+                    <AppText style={[styles.statusSub, { color: colors.textSecondary }]}>
                       {t("analyzing_scene")}
-                    </Text>
+                    </AppText>
                   </View>
                 ) : (
                   <View>
                     <View style={styles.chatRow}>
                       <Feather name={step === "speaking" ? "volume-2" : "check-circle"} size={20} color={colors.primary} style={{ marginRight: 8 }} />
-                      <Text style={[styles.statusSub, { color: colors.primary, fontWeight: "700" }]}>
+                      <AppText style={[styles.statusSub, { color: colors.primary, fontWeight: "700" }]}>
                         {step === "speaking" ? (t("describing_aloud") || "Describing Aloud...") : "EchoVision AI"}
-                      </Text>
+                      </AppText>
                     </View>
-                    <Text style={[styles.extractedText, { color: colors.text, marginTop: 8 }]}>{description}</Text>
+                    <AppText style={[styles.extractedText, { color: colors.text, marginTop: 8 }]}>{description}</AppText>
                   </View>
                 )}
               </View>
@@ -364,9 +541,9 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
                   onPress={handleReset}
                 >
                   <Feather name="camera" size={20} color={colors.text} style={{ marginRight: 8 }} />
-                  <Text style={[styles.actionBtnText, { color: colors.text }]} adjustsFontSizeToFit numberOfLines={1}>
+                  <AppText style={[styles.actionBtnText, { color: colors.text }]} adjustsFontSizeToFit numberOfLines={1}>
                     {t("scan_again") || "Scan Again"}
-                  </Text>
+                  </AppText>
                 </Pressable>
 
                 {step === "done" && (
@@ -375,9 +552,9 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
                     onPress={handleReplay}
                   >
                     <Feather name="refresh-cw" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={[styles.actionBtnText, { color: "#FFF" }]} adjustsFontSizeToFit numberOfLines={1}>
+                    <AppText style={[styles.actionBtnText, { color: "#FFF" }]} adjustsFontSizeToFit numberOfLines={1}>
                       {t("replay_audio") || "Replay Audio"}
-                    </Text>
+                    </AppText>
                   </Pressable>
                 )}
               </View>
@@ -392,11 +569,11 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centerContent: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
-  loadingText: { fontFamily: "Nunito_400Regular", fontSize: 16 },
-  permissionTitle: { fontFamily: "Nunito_800ExtraBold", fontSize: 24, marginBottom: 12, textAlign: "center" },
-  permissionText: { fontFamily: "Nunito_400Regular", fontSize: 15, textAlign: "center", marginBottom: 32, lineHeight: 22 },
+  loadingText: { fontFamily: "Inter_400Regular", fontSize: 16 },
+  permissionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 24, marginBottom: 12, textAlign: "center" },
+  permissionText: { fontFamily: "Inter_400Regular", fontSize: 15, textAlign: "center", marginBottom: 32, lineHeight: 22 },
   permissionButton: { paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16 },
-  permissionButtonText: { fontFamily: "Nunito_700Bold", color: "#FFF", fontSize: 16 },
+  permissionButtonText: { fontFamily: "Inter_700Bold", color: "#FFF", fontSize: 16 },
 
   topBar: {
     position: "absolute",
@@ -413,7 +590,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   headerTitle: {
-    fontFamily: "Nunito_600SemiBold",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 20,
     fontWeight: "800",
     color: "#FFF",
@@ -427,6 +604,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: "rgba(0,0,0,0.4)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.25)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -470,7 +649,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
   },
-  captureButtonText: { fontFamily: "Nunito_700Bold", color: "#FFF", fontSize: 18 },
+  captureButtonText: { fontFamily: "Inter_700Bold", color: "#FFF", fontSize: 18 },
   
   statusPill: {
     flexDirection: "row",
@@ -480,7 +659,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 24,
   },
-  statusText: { fontFamily: "Nunito_600SemiBold", color: "#FFF", fontSize: 16 },
+  statusText: { fontFamily: "Inter_600SemiBold", color: "#FFF", fontSize: 16 },
 
   resultContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -529,9 +708,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   
-  statusHeader: { fontFamily: "Nunito_800ExtraBold", fontSize: 22, marginTop: 16, marginBottom: 8 },
-  statusSub: { fontFamily: "Nunito_400Regular", fontSize: 15 },
-  extractedText: { fontFamily: "Nunito_400Regular", fontSize: 16, lineHeight: 26 },
+  statusHeader: { fontFamily: "Inter_800ExtraBold", fontSize: 22, marginTop: 16, marginBottom: 8 },
+  statusSub: { fontFamily: "Inter_400Regular", fontSize: 15 },
+  extractedText: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 26 },
   
   actionRow: {
     flexDirection: "row",
@@ -548,5 +727,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginHorizontal: 6,
   },
-  actionBtnText: { fontFamily: "Nunito_700Bold", fontSize: 15 },
+  actionBtnText: { fontFamily: "Inter_700Bold", fontSize: 15 },
 });

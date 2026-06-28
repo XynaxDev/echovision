@@ -15,8 +15,8 @@ android/
 .env.local
 
 # Firebase Secrets
-google-services.json
-GoogleService-Info.plist
+# google-services.json
+# GoogleService-Info.plist
 
 # IDE
 .vscode/
