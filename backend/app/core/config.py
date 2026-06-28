@@ -49,6 +49,9 @@ class Settings:
     firebase_credentials_path: str = field(
         default_factory=lambda: _get_env("FIREBASE_CREDENTIALS_PATH", "serviceAccountKey.json")
     )
+    firebase_credentials_json: str = field(
+        default_factory=lambda: _get_env("FIREBASE_CREDENTIALS_JSON", "")
+    )
     redis_url: str = field(default_factory=lambda: _get_env("REDIS_URL", "redis://localhost:6379"))
 
     # ── External Service URLs ─────────────────────────────────────────────

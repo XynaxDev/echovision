@@ -34,6 +34,17 @@ def get_firebase_app() -> firebase_admin.App:
             _firebase_app = firebase_admin.get_app()
         except ValueError:
             settings = get_settings()
+            if settings.firebase_credentials_json:
+                import json
+                try:
+                    cred_dict = json.loads(settings.firebase_credentials_json)
+                    cred = credentials.Certificate(cred_dict)
+                    _firebase_app = firebase_admin.initialize_app(cred)
+                    logger.info("Firebase Admin SDK initialized successfully via JSON string.")
+                    return _firebase_app
+                except Exception as e:
+                    logger.error(f"Failed to parse FIREBASE_CREDENTIALS_JSON: {e}")
+
             cred_path = Path(settings.firebase_credentials_path)
 
             if not cred_path.is_absolute():
@@ -41,7 +52,7 @@ def get_firebase_app() -> firebase_admin.App:
 
             if not cred_path.exists():
                 logger.warning(
-                    f"Firebase credentials not found at {cred_path}. "
+                    f"Firebase credentials not found at {cred_path} and no JSON env var found. "
                     "Auth will fail unless application default credentials are used."
                 )
                 _firebase_app = firebase_admin.initialize_app()
