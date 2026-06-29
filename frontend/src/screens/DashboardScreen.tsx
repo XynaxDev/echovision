@@ -8,6 +8,8 @@ import {
   Platform,
   Dimensions,
   Image,
+  ScrollView,
+  RefreshControl,
 } from "react-native";
 import { Camera } from "expo-camera";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -100,13 +102,30 @@ export function DashboardScreen({ navigation }: Props): React.JSX.Element {
   const user = auth().currentUser;
 
   // Load avatar URI when screen is focused
+  const loadAvatar = () => {
+    AsyncStorage.getItem("@echovision_profile_image").then((uri) => {
+      setAvatarUri(uri);
+    });
+  };
+
   useEffect(() => {
     if (isFocused) {
-      AsyncStorage.getItem("@echovision_profile_image").then((uri) => {
-        setAvatarUri(uri);
-      });
+      loadAvatar();
     }
   }, [isFocused]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    triggerHaptic("light");
+    // Reload dynamic data
+    loadAvatar();
+    // Simulate network delay to allow animation
+    setTimeout(() => {
+      setRefreshing(false);
+      triggerHaptic("success");
+    }, 1000);
+  }, []);
 
   // Animations
   const navOpacity = useRef(new Animated.Value(1)).current;
@@ -184,10 +203,8 @@ export function DashboardScreen({ navigation }: Props): React.JSX.Element {
           }}
           style={[styles.profileButton, { borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)" }]}
         >
-          {avatarUri ? (
+          {avatarUri && avatarUri !== "removed" ? (
             <Image source={{ uri: avatarUri }} style={styles.profileImage} />
-          ) : user?.photoURL ? (
-            <Image source={{ uri: user.photoURL }} style={styles.profileImage} />
           ) : (
             <View style={[styles.profilePlaceholder, { backgroundColor: colors.card }]}>
               <Feather name="user" size={22} color={colors.text} />
@@ -196,61 +213,67 @@ export function DashboardScreen({ navigation }: Props): React.JSX.Element {
         </Pressable>
       </View>
 
-      {/* 2x2 Grid Area */}
-      <View style={styles.gridArea}>
-        <View style={styles.grid}>
-          {QUADRANTS.map((item) => {
-            const accentColor = item.color;
-            const cardBg = colors.card;
-            const subtitleColor = isDark ? "rgba(255,255,255,0.6)" : "rgba(18, 22, 96, 0.6)";
+      <ScrollView 
+        contentContainerStyle={{ flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 2x2 Grid Area */}
+        <View style={styles.gridArea}>
+          <View style={styles.grid}>
+            {QUADRANTS.map((item) => {
+              const accentColor = item.color;
+              const cardBg = colors.card;
+              const subtitleColor = isDark ? "rgba(255,255,255,0.6)" : "rgba(18, 22, 96, 0.6)";
 
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => interactItem(item)}
-                style={({ pressed }) => [
-                  styles.quadrant,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)",
-                    transform: [{ scale: pressed ? 0.96 : 1 }],
-                    opacity: pressed ? 0.9 : 1,
-                  },
-                ]}
-                accessibilityLabel={t(item.titleKey)}
-                accessibilityRole="button"
-              >
-                {/* Subtle Background Tint */}
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: accentColor, opacity: isDark ? 0.08 : 0.03 }]} />
-                
-                {/* Large Watermark Icon */}
-                <View style={styles.watermark}>
-                  <Feather name={item.iconName} size={130} color={accentColor} />
-                </View>
-
-                <View style={styles.quadInner}>
-                  {/* Top-left Icon Badge */}
-                  <View style={[styles.iconBadge, { 
-                    borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
-                    backgroundColor: isDark ? accentColor + "20" : accentColor + "15" // Appends hex opacity (e.g., 20% opacity)
-                  }]}>
-                    <Feather
-                       name={item.iconName}
-                       size={22}
-                       color={accentColor}
-                    />
-                  </View>
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => interactItem(item)}
+                  style={({ pressed }) => [
+                    styles.quadrant,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)",
+                      transform: [{ scale: pressed ? 0.96 : 1 }],
+                      opacity: pressed ? 0.9 : 1,
+                    },
+                  ]}
+                  accessibilityLabel={t(item.titleKey)}
+                  accessibilityRole="button"
+                >
+                  {/* Subtle Background Tint */}
+                  <View style={[StyleSheet.absoluteFillObject, { backgroundColor: accentColor, opacity: isDark ? 0.08 : 0.03 }]} />
                   
-                  <AppText style={[styles.quadrantTitle, { color: isDark ? "#FFFFFF" : "#1A1C2E" }]} adjustsFontSizeToFit numberOfLines={2}>
-                    {t(item.titleKey).replace(" ", "\n")}
-                  </AppText>
-                  <AppText style={[styles.quadrantSubtitle, { color: subtitleColor }]} adjustsFontSizeToFit numberOfLines={1}>{t(item.subtitleKey)}</AppText>
-                </View>
-              </Pressable>
-            );
-          })}
+                  {/* Large Watermark Icon */}
+                  <View style={styles.watermark}>
+                    <Feather name={item.iconName} size={130} color={accentColor} />
+                  </View>
+
+                  <View style={styles.quadInner}>
+                    {/* Top-left Icon Badge */}
+                    <View style={[styles.iconBadge, { 
+                      borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                      backgroundColor: isDark ? accentColor + "20" : accentColor + "15" // Appends hex opacity (e.g., 20% opacity)
+                    }]}>
+                      <Feather
+                         name={item.iconName}
+                         size={22}
+                         color={accentColor}
+                      />
+                    </View>
+                    
+                    <AppText style={[styles.quadrantTitle, { color: isDark ? "#FFFFFF" : "#1A1C2E" }]} adjustsFontSizeToFit numberOfLines={2}>
+                      {t(item.titleKey).replace(" ", "\n")}
+                    </AppText>
+                    <AppText style={[styles.quadrantSubtitle, { color: subtitleColor }]} adjustsFontSizeToFit numberOfLines={1}>{t(item.subtitleKey)}</AppText>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-      </View>
+      </ScrollView>
 
       <View style={[styles.navContainer, { bottom: 0 }]} pointerEvents="box-none">
         <Animated.View 

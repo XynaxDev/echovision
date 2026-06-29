@@ -66,6 +66,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const shieldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const micBufferRef = useRef<Buffer[]>([]);
+  const isProcessingQueueRef = useRef(false);
 
   useEffect(() => {
     // 1. Initialize Live Audio Stream
@@ -329,20 +330,34 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
             soundRef.current.stopAsync().catch(() => {});
         }
         isPlaying.current = false;
+        isProcessingQueueRef.current = false;
     }
   };
   // ── Serialized Audio Queue Playback ──
   const processAudioQueue = async (isRecursive = false) => {
     if (isSpeechActiveRef.current) return;
-    if (isPlaying.current && !isRecursive) return;
+    
+    // Strict mutex lock to prevent concurrent chunk processing
+    if (isProcessingQueueRef.current && !isRecursive) return;
+
     if (audioQueue.current.length === 0) {
         if (isRecursive) {
              shieldTimeoutRef.current = setTimeout(() => {
                  isPlaying.current = false;
+                 isProcessingQueueRef.current = false;
+                 
+                 // Double check if any chunks arrived while the timeout was ticking!
+                 if (audioQueue.current.length > 0) {
+                     processAudioQueue(true);
+                 }
              }, 500);
+        } else {
+             isProcessingQueueRef.current = false;
         }
         return;
     }
+    
+    isProcessingQueueRef.current = true;
     isPlaying.current = true;
     if (shieldTimeoutRef.current) clearTimeout(shieldTimeoutRef.current);
 
@@ -352,13 +367,19 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         const { sound } = await Audio.Sound.createAsync({ uri: nextFileUri! });
         soundRef.current = sound;
         
-        sound.setOnPlaybackStatusUpdate(async (status) => {
+        sound.setOnPlaybackStatusUpdate((status) => {
             if (status.isLoaded && status.didJustFinish) {
-                await sound.unloadAsync();
-                soundRef.current = null;
-                processAudioQueue(true);
+                sound.setOnPlaybackStatusUpdate(null); // Detach listener
+                sound.unloadAsync().then(() => {
+                    soundRef.current = null;
+                    processAudioQueue(true);
+                }).catch(() => {
+                    soundRef.current = null;
+                    processAudioQueue(true);
+                });
             } else if (!status.isLoaded && status.error) {
                 console.warn('Playback sequence error inside status update', status.error);
+                sound.setOnPlaybackStatusUpdate(null);
                 soundRef.current = null;
                 processAudioQueue(true);
             }
@@ -440,6 +461,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     ws.onclose = () => {
       console.log('WebSocket closed');
       LiveAudioStream.stop();
+      audioQueue.current = [];
+      if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
+      isPlaying.current = false;
+      isProcessingQueueRef.current = false;
+
       // If the websocket closes unexpectedly (not triggered by user toggling off),
       // we must update the UI state so it doesn't get stuck in a "zombie" active state.
       if (voiceActiveRef.current) {
@@ -463,8 +489,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         wsRef.current = null;
       }
       micBufferRef.current = [];
+      audioQueue.current = [];
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
       isPlaying.current = false;
+      isProcessingQueueRef.current = false;
       if (contextualCommandsRef.current.onVoiceToggle) {
         contextualCommandsRef.current.onVoiceToggle(false);
       } else {
@@ -481,6 +509,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       micBufferRef.current = [];
       // Start microphone IMMEDIATELY so no words are dropped while websocket connects
       LiveAudioStream.start();
+      triggerHaptic("heavy");
       
       if (contextualCommandsRef.current.onVoiceToggle) {
         contextualCommandsRef.current.onVoiceToggle(true);

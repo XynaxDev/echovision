@@ -28,6 +28,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { useVoiceContext } from "../context/VoiceContext";
 import * as Speech from "expo-speech";
 import { GridPattern } from "../components/GridPattern";
+import { legalDocuments } from "../data/legal";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Custom Switch (Flat Style)
@@ -411,7 +412,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
         if (tempAvatarUri) {
           await AsyncStorage.setItem("@echovision_profile_image", tempAvatarUri);
         } else {
-          await AsyncStorage.removeItem("@echovision_profile_image");
+          await AsyncStorage.setItem("@echovision_profile_image", "removed");
         }
       }
 
@@ -743,9 +744,83 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               </View>
             </SettingCard>
 
+            <View style={{ marginTop: 24 }} />
+            <SectionHeader title={language === "hindi" ? "कानूनी और नीतियां" : "LEGAL & POLICIES"} />
+            <SettingCard>
+              <Pressable 
+                onPress={() => {
+                  triggerHaptic("light");
+                  navigation.navigate("LegalViewer", { title: "About EchoVision", content: legalDocuments.aboutApp });
+                }}
+              >
+                <SettingRow 
+                  title="About EchoVision" 
+                  icon="info"
+                  iconBg="#0171DF"
+                  rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
+                />
+              </Pressable>
+              <Divider />
+              <Pressable 
+                onPress={() => {
+                  triggerHaptic("light");
+                  navigation.navigate("LegalViewer", { title: "Privacy Policy", content: legalDocuments.privacyPolicy });
+                }}
+              >
+                <SettingRow 
+                  title="Privacy Policy" 
+                  icon="shield"
+                  iconBg="#00C4B4"
+                  rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
+                />
+              </Pressable>
+              <Divider />
+              <Pressable 
+                onPress={() => {
+                  triggerHaptic("light");
+                  navigation.navigate("LegalViewer", { title: "Terms of Service", content: legalDocuments.termsOfService });
+                }}
+              >
+                <SettingRow 
+                  title="Terms of Service" 
+                  icon="file-text"
+                  iconBg="#8E44AD"
+                  rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
+                />
+              </Pressable>
+              <Divider />
+              <Pressable 
+                onPress={() => {
+                  triggerHaptic("light");
+                  navigation.navigate("LegalViewer", { title: "Cookie Policy", content: legalDocuments.cookiePolicy });
+                }}
+              >
+                <SettingRow 
+                  title="Cookie Policy" 
+                  icon="database"
+                  iconBg="#F39C12"
+                  rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
+                />
+              </Pressable>
+              <Divider />
+              <Pressable 
+                onPress={() => {
+                  triggerHaptic("light");
+                  navigation.navigate("LegalViewer", { title: "End-User License", content: legalDocuments.license });
+                }}
+              >
+                <SettingRow 
+                  title="End-User License" 
+                  icon="award"
+                  iconBg="#3498DB"
+                  rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
+                />
+              </Pressable>
+            </SettingCard>
+
             {/* Action Links Below List */}
-            <View style={{ marginTop: 40, alignItems: "center" }}>
-              <Pressable style={styles.logoutButton} onPress={handleLogout}>
+            <View style={{ marginTop: 40, alignItems: "center", gap: 16 }}>
+              <Pressable style={[styles.logoutButton, { width: "100%", paddingVertical: 14 }]} onPress={handleLogout}>
                 <Feather name="log-out" size={20} color="#FFF" style={{ marginRight: 8 }} />
                 <AppText style={styles.logoutButtonText}>{t("logout")}</AppText>
               </Pressable>
@@ -753,50 +828,11 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
             
           </View>
 
-          {/* Footer Links */}
-          <View style={styles.footerLinks}>
-            <AppText style={[styles.footerText, { color: colors.textSecondary }]}>Version 1.0.0</AppText>
-            <Pressable onPress={() => setShowLicense(true)}>
-              <AppText style={[styles.footerText, { color: colors.textSecondary }]}>License & Policies</AppText>
-            </Pressable>
-            <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 8 }}>
-              <AppText style={[styles.footerSubText, { color: colors.textSecondary }]}>User regulations</AppText>
-              <AppText style={[styles.footerSubText, { color: colors.textSecondary }]}>Privacy and cookies</AppText>
-            </View>
+          <View style={{ alignItems: "center", marginTop: 24, paddingBottom: 24 }}>
+            <AppText style={{ fontSize: 13, color: colors.textSecondary }}>EchoVision v1.0.0</AppText>
           </View>
-
         </ScrollView>
       </View>
-
-      {/* License Modal */}
-      <Modal visible={showLicense} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowLicense(false)}>
-        <View style={[styles.container, { backgroundColor: colors.background, paddingTop: Platform.OS === "ios" ? 20 : 40 }]}>
-          <GridPattern color={colors.textSecondary} opacity={isDark ? 0.08 : 0.05} spacing={24} />
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingBottom: 16 }}>
-            <AppText style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: colors.text }}>License & Policies</AppText>
-            <Pressable 
-              onPress={() => {
-                triggerHaptic("light");
-                setShowLicense(false);
-              }} 
-              style={[styles.closeButton, { borderColor: colors.border }]}
-            >
-              <Feather name="x" size={20} color={colors.text} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: 20 }}>
-            <AppText style={{ fontFamily: "Inter_400Regular", fontSize: 14, color: colors.text, lineHeight: 22 }}>
-              <AppText style={{ fontFamily: "Inter_700Bold", fontSize: 16 }}>EchoVision App License Agreement</AppText>
-              {"\n\n"}
-              This software is provided "as is", without warranty of any kind, express or implied. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability arising from, out of, or in connection with the software.
-              {"\n\n"}
-              The EchoVision app is intended as an accessibility aid and does not replace professional medical or navigational assistance. Users are responsible for their own safety and should not rely exclusively on the app's output in potentially dangerous situations.
-              {"\n\n"}
-              All third-party services (such as NVIDIA NIM, Sarvam AI, and Deepgram) are governed by their respective terms of service and privacy policies.
-            </AppText>
-          </ScrollView>
-        </View>
-      </Modal>
 
       <ConfirmationModal
         visible={logoutModalVisible}

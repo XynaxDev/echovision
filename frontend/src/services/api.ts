@@ -21,25 +21,7 @@ import { NativeModules, Platform } from "react-native";
  * - In production, it uses the production URL.
  */
 const getApiBaseUrl = () => {
-  let resolvedUrl = "https://api.echovision.app";
-  
-  if (__DEV__) {
-    // We strictly use the IP address from the Expo Metro bundler.
-    // If the phone can reach the Metro bundler on this IP, it can reach the backend.
-    const hostUri = Constants.expoConfig?.hostUri;
-    
-    if (hostUri) {
-      const ip = hostUri.split(":")[0];
-      if (ip === "localhost" || ip === "127.0.0.1") {
-        resolvedUrl = Platform.OS === "android" ? "http://10.0.2.2:8000" : "http://localhost:8000";
-      } else {
-        resolvedUrl = `http://${ip}:8000`;
-      }
-    } else {
-      // Ultimate fallback
-      resolvedUrl = Platform.OS === "android" ? "http://10.0.2.2:8000" : "http://localhost:8000";
-    }
-  }
+  const resolvedUrl = "https://echovision-production-backend.up.railway.app";
   
   console.log("🛠️ API CONFIG:", { 
     hostUri: Constants.expoConfig?.hostUri, 

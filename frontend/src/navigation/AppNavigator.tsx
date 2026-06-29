@@ -23,6 +23,7 @@ import { SceneScannerScreen } from "../screens/SceneScannerScreen";
 import { TextReaderScreen } from "../screens/TextReaderScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { SOSConfirmationScreen } from "../screens/SOSConfirmationScreen";
+import { LegalViewerScreen } from "../screens/LegalViewerScreen";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Route Param List
@@ -38,6 +39,7 @@ export type RootStackParamList = {
   TextReader: undefined;
   SOSConfirmation: { source: "voice" | "manual" };
   Settings: undefined;
+  LegalViewer: { title: string; content: string };
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -145,6 +147,14 @@ export function AppNavigator(): React.JSX.Element {
         component={SOSConfirmationScreen}
         options={{ headerShown: false }}
       />
-      </Stack.Navigator>
+      <Stack.Screen
+        name="LegalViewer"
+        component={LegalViewerScreen}
+        options={({ route }) => ({
+          headerShown: true,
+          title: route.params.title,
+        })}
+      />
+    </Stack.Navigator>
   );
 }

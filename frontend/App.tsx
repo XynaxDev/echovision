@@ -262,14 +262,16 @@ function AppInner(): React.JSX.Element {
   };
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+    <>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <GlobalGestureWrapper navigationRef={navigationRef}>
         <AppNavigator />
       </GlobalGestureWrapper>
       <GlobalVoiceOverlay />
       <Toast config={toastConfig} />
-    </NavigationContainer>
+      </NavigationContainer>
+    </>
   );
 }
 
