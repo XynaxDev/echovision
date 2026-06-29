@@ -73,13 +73,16 @@ function ModernSwitch({ value, onValueChange, activeColor }: { value: boolean, o
 // Theme Selector Pill
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ThemeSelectorPill() {
+function ThemeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
   const { themeMode, setThemeMode, colors, isDark } = useAppTheme();
+  const { language } = useLanguage();
 
   const handleSelect = (mode: "system" | "light" | "dark") => {
     setThemeMode(mode);
     triggerHaptic("light");
-    Toast.show({ type: "success", text1: "Theme updated", text2: `Set to ${mode} mode.` });
+    const msg = `Theme set to ${mode} mode.`;
+    if (talkbackOn) Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    Toast.show({ type: "success", text1: "Theme updated", text2: msg });
   };
 
   const getBg = (mode: "system" | "light" | "dark") => (themeMode === mode ? (isDark ? colors.card : "#FFF") : "transparent");
@@ -104,13 +107,16 @@ function ThemeSelectorPill() {
 // Text Size Selector Pill
 // ═══════════════════════════════════════════════════════════════════════════
 
-function TextSizeSelectorPill() {
+function TextSizeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
   const { textSize, setTextSize, colors, isDark } = useAppTheme();
+  const { language } = useLanguage();
 
   const handleSelect = (size: "small" | "medium" | "large") => {
     setTextSize(size);
     triggerHaptic("light");
-    Toast.show({ type: "success", text1: "Text size updated", text2: `Set to ${size}.` });
+    const msg = `Text size set to ${size}.`;
+    if (talkbackOn) Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    Toast.show({ type: "success", text1: "Text size updated", text2: msg });
   };
 
   const getBg = (size: "small" | "medium" | "large") => (textSize === size ? (isDark ? colors.card : "#FFF") : "transparent");
@@ -444,10 +450,12 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
         await AsyncStorage.setItem("@echovision_current_lat", location.coords.latitude.toString());
         await AsyncStorage.setItem("@echovision_current_lon", location.coords.longitude.toString());
         triggerHaptic("success");
+        if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन अपडेट हो गई है" : "Location updated", { language: language === "hindi" ? "hi-IN" : "en-US" });
         Toast.show({ type: "success", text1: "Location updated", text2: "Current location refreshed." });
       }
     } catch (e) {
       triggerHaptic("error");
+      if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन नहीं मिल पाई" : "Failed to grab location", { language: language === "hindi" ? "hi-IN" : "en-US" });
       Toast.show({ type: "error", text1: "Location Error", text2: "Failed to grab location." });
     } finally {
       setIsSavingLoc(false);
@@ -627,14 +635,14 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
                 title={t("theme")} 
                 icon="sun"
                 iconBg="#8B5CF6"
-                rightElement={<ThemeSelectorPill />}
+                rightElement={<ThemeSelectorPill talkbackOn={talkbackOn} />}
               />
               <Divider />
               <SettingRow 
                 title={t("font_size")} 
                 icon="type"
                 iconBg="#3CAE8B"
-                rightElement={<TextSizeSelectorPill />}
+                rightElement={<TextSizeSelectorPill talkbackOn={talkbackOn} />}
               />
               <Divider />
               <SettingRow 
@@ -750,6 +758,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
+                  if (talkbackOn) Speech.speak(language === "hindi" ? "EchoVision के बारे में खोला जा रहा है" : "Opening About EchoVision", { language: language === "hindi" ? "hi-IN" : "en-US" });
                   navigation.navigate("LegalViewer", { title: "About EchoVision", content: legalDocuments.aboutApp });
                 }}
               >
@@ -764,6 +773,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
+                  if (talkbackOn) Speech.speak(language === "hindi" ? "प्राइवेसी पॉलिसी खोली जा रही है" : "Opening Privacy Policy", { language: language === "hindi" ? "hi-IN" : "en-US" });
                   navigation.navigate("LegalViewer", { title: "Privacy Policy", content: legalDocuments.privacyPolicy });
                 }}
               >
@@ -778,6 +788,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
+                  if (talkbackOn) Speech.speak(language === "hindi" ? "सेवा की शर्तें खोली जा रही हैं" : "Opening Terms of Service", { language: language === "hindi" ? "hi-IN" : "en-US" });
                   navigation.navigate("LegalViewer", { title: "Terms of Service", content: legalDocuments.termsOfService });
                 }}
               >
@@ -792,6 +803,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
+                  if (talkbackOn) Speech.speak(language === "hindi" ? "कुकी नीति खोली जा रही है" : "Opening Cookie Policy", { language: language === "hindi" ? "hi-IN" : "en-US" });
                   navigation.navigate("LegalViewer", { title: "Cookie Policy", content: legalDocuments.cookiePolicy });
                 }}
               >
@@ -806,6 +818,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
+                  if (talkbackOn) Speech.speak(language === "hindi" ? "लाइसेंस खोला जा रहा है" : "Opening End-User License", { language: language === "hindi" ? "hi-IN" : "en-US" });
                   navigation.navigate("LegalViewer", { title: "End-User License", content: legalDocuments.license });
                 }}
               >

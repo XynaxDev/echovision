@@ -2,8 +2,13 @@ export const legalDocuments = {
   aboutApp: `**About EchoVision**
 
 **Version:** 1.0.0
-**Founders:** Akshita Goel, Lakshita Bhardwaj
-**Developers:** Akash Kumar, Lavnish
+**Developed by:**
+- Akash Kumar
+- Lavnish Pandey
+
+**Founders:**
+- Akshita Goel
+- Lakshita Bhardwaj
 
 EchoVision is an ultra-low-latency, real-time accessibility platform engineered specifically to empower the visually impaired. Built with a deep commitment to independence and inclusivity, it seamlessly merges computer vision, conversational AI, and spatial audio to provide instant environmental awareness. 
 
