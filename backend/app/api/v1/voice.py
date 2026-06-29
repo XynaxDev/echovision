@@ -27,7 +27,6 @@ from fastapi.responses import Response
 import websockets
 import httpx
 
-from app.core.config import settings
 from app.core.cache import get_cache, set_cache
 from app.core.security import CurrentUser, get_current_user
 from app.schemas.voice import IntentRequest, IntentResponse, STTResponse, TTSRequest
