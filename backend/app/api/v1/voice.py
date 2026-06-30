@@ -129,8 +129,8 @@ async def voice_stream_endpoint(
                         
                         weather_context = (
                             f"\n\nCURRENT WEATHER (Based on User's Location):\n"
-                            f"Temperature: {temp} degrees (Feels like {feels_like} degrees). Condition: {weather_desc}. Precipitation (Rain): {precip}mm.\n"
-                            f"WEATHER SPEAKING RULE: When telling the weather, speak very naturally like a local friend. For example, say 'आज मौसम साफ़ है, तापमान 39 degrees है लेकिन गर्मी 43 degrees जैसी लग रही है। बारिश की कोई संभावना नहीं है, आप आराम से बाहर जा सकते हैं!'. DO NOT use robotic literal translations. NEVER output any <ACTION:...> tags when answering weather queries!"
+                            f"Temperature: {temp}°C (Feels like {feels_like}°C). Condition: {weather_desc}. Precipitation (Rain): {precip}mm.\n"
+                            f"WEATHER SPEAKING RULE: When answering weather queries, speak naturally like a local friend using ONLY the actual data provided above. NEVER output any <ACTION:...> tags when answering weather queries!"
                         )
             except Exception as e:
                 logger.error(f"Failed to fetch weather: {type(e).__name__} - {e}")
@@ -299,7 +299,7 @@ async def voice_stream_endpoint(
         # Get current date and time in IST
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
-        time_context = f"\n\nCURRENT DATE & TIME:\nToday is {now.strftime('%A, %B %d, %Y')}. The current time is {now.strftime('%I:%M %p')}. TIME SPEAKING RULE: When telling time in Hindi, speak naturally like a human (e.g., say 'अभी समय दोपहर के 2:47 हो रहा है' or 'अभी समय शाम के 6:30 हो रहे हैं' instead of robotic literal translations like 'आज 02:47 बजे है')."
+        time_context = f"\n\nCURRENT DATE & TIME:\nToday is {now.strftime('%A, %B %d, %Y')}. The current time is {now.strftime('%I:%M %p')}. TIME SPEAKING RULE: When telling time, speak naturally like a human using the ACTUAL time provided here. DO NOT use robotic literal translations."
         
         if weather_context:
             time_context += weather_context
