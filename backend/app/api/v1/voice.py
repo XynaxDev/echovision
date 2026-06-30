@@ -355,6 +355,7 @@ async def voice_stream_endpoint(
                 emitted_actions = []
                 photo_keywords = ["photo", "फोटो", "capture", "click", "तस्वीर", "तसवीर", "pic", "picture", "छवि"]
                 query_wants_photo = any(kw in query.lower() for kw in photo_keywords)
+                is_first_chunk = True
                 
                 # Assemble system prompt with the LATEST active_page
                 current_system = SYSTEM_PROMPT + "\n" + sys_lang + location_context + time_context + "\n" + user_context
