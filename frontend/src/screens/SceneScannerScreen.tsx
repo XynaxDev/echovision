@@ -55,6 +55,7 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
   const capturingRef = useRef(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fullAudioSequence = useRef<string[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const { registerContextualCommands, clearContextualCommands, isVoiceActive, pushToAudioQueue, interruptAudioQueue } = useVoiceContext();
 
@@ -70,6 +71,10 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
          try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch (e) {}
       }
       fullAudioSequence.current = [];
+      if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+      }
     } catch {}
   }, [interruptAudioQueue]);
 
@@ -224,7 +229,9 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       }
 
+      if (wsRef.current) wsRef.current.close();
       const ws = new WebSocket(VISION_WS_URL);
+      wsRef.current = ws;
       
       let audioQueue: string[] = [];
       let isWsDone = false;
