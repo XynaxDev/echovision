@@ -162,6 +162,8 @@ export function DashboardScreen({ navigation }: Props): React.JSX.Element {
     handleTap(
       () => speak(localizedTitle),
       async () => {
+        speak(language === "hindi" ? `${localizedTitle} खोला जा रहा है` : `Opening ${localizedTitle}`);
+        
         if (item.screen === "SceneScanner" || item.screen === "TextReader") {
           const { status } = await Camera.requestCameraPermissionsAsync();
           if (status !== 'granted') {

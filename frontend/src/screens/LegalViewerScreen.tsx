@@ -4,16 +4,74 @@ import { RouteProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { useAppTheme } from "../context/ThemeContext";
 import { AppText } from "../components/AppText";
+import * as Speech from "expo-speech";
+import { useLanguage } from "../context/LanguageContext";
+import { useVoiceContext } from "../context/VoiceContext";
+import { Feather } from "@expo/vector-icons";
+import { Pressable } from "react-native";
+import { triggerHaptic } from "../utils/haptics";
 
 type LegalViewerScreenRouteProp = RouteProp<RootStackParamList, "LegalViewer">;
 
 interface Props {
   route: LegalViewerScreenRouteProp;
+  navigation: any;
 }
 
-export function LegalViewerScreen({ route }: Props) {
+export function LegalViewerScreen({ route, navigation }: Props) {
   const { content } = route.params;
   const { colors } = useAppTheme();
+  const { language } = useLanguage();
+  const { isVoiceActive } = useVoiceContext();
+  const [isSpeaking, setIsSpeaking] = React.useState(false);
+
+  React.useEffect(() => {
+    // Stop speech if assistant activates
+    if (isVoiceActive) {
+      Speech.stop();
+      setIsSpeaking(false);
+    }
+  }, [isVoiceActive]);
+
+  React.useEffect(() => {
+    // Stop speech when leaving the screen
+    return () => {
+      Speech.stop();
+    };
+  }, []);
+
+  const toggleSpeech = () => {
+    triggerHaptic("light");
+    if (isSpeaking) {
+      Speech.stop();
+      setIsSpeaking(false);
+    } else {
+      Speech.stop();
+      setIsSpeaking(true);
+      // Clean up the markdown syntax for better speech
+      // Replacing • with a space so it doesn't read out "dot"
+      const cleanText = content.replace(/\*\*/g, "").replace(/\*/g, "").replace(/•/g, " ");
+      Speech.speak(cleanText, {
+        language: language === "hindi" ? "hi-IN" : "en-US",
+        onDone: () => setIsSpeaking(false),
+        onStopped: () => setIsSpeaking(false),
+        onError: () => setIsSpeaking(false),
+      });
+    }
+  };
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable 
+          onPress={toggleSpeech} 
+          style={{ marginRight: 16, padding: 8, backgroundColor: isSpeaking ? colors.primary : "transparent", borderRadius: 20 }}
+        >
+          <Feather name={isSpeaking ? "volume-x" : "volume-2"} size={22} color={isSpeaking ? "#FFF" : colors.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, isSpeaking, colors]);
 
   return (
     <ScrollView 

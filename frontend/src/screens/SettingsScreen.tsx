@@ -28,7 +28,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { useVoiceContext } from "../context/VoiceContext";
 import * as Speech from "expo-speech";
 import { GridPattern } from "../components/GridPattern";
-import { legalDocuments } from "../data/legal";
+import { legalDocuments, legalDocumentsHi } from "../data/legal";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Custom Switch (Flat Style)
@@ -81,7 +81,10 @@ function ThemeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
     setThemeMode(mode);
     triggerHaptic("light");
     const msg = `Theme set to ${mode} mode.`;
-    if (talkbackOn) Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    if (talkbackOn) {
+      Speech.stop();
+      Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    }
     Toast.show({ type: "success", text1: "Theme updated", text2: msg });
   };
 
@@ -115,7 +118,10 @@ function TextSizeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
     setTextSize(size);
     triggerHaptic("light");
     const msg = `Text size set to ${size}.`;
-    if (talkbackOn) Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    if (talkbackOn) {
+      Speech.stop();
+      Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    }
     Toast.show({ type: "success", text1: "Text size updated", text2: msg });
   };
 
@@ -204,7 +210,7 @@ export interface SOSContact {
 // Custom Confirmation Modal
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ConfirmationModal({ visible, title, description, confirmText, onConfirm, onCancel, isDanger = false, colors, isDark }: any) {
+function ConfirmationModal({ visible, title, description, confirmText, cancelText = "Cancel", onConfirm, onCancel, isDanger = false, colors, isDark }: any) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
       <View style={styles.modalOverlay}>
@@ -213,9 +219,9 @@ function ConfirmationModal({ visible, title, description, confirmText, onConfirm
           <AppText style={[styles.modalDesc, { color: colors.textSecondary }]}>{description}</AppText>
           <View style={styles.modalActions}>
             <Pressable onPress={onCancel} style={[styles.modalButton, styles.modalButtonCancel]}>
-              <AppText style={[styles.modalButtonText, { color: colors.text }]}>Cancel</AppText>
+              <AppText style={[styles.modalButtonText, { color: colors.text }]}>{cancelText}</AppText>
             </Pressable>
-            <Pressable onPress={() => { onConfirm(); onCancel(); }} style={[styles.modalButton, { backgroundColor: isDanger ? colors.danger : colors.primary }]}>
+            <Pressable onPress={() => { onConfirm(); }} style={[styles.modalButton, { backgroundColor: isDanger ? colors.danger : colors.primary }]}>
               <AppText style={[styles.modalButtonText, { color: "#FFF" }]}>{confirmText}</AppText>
             </Pressable>
           </View>
@@ -230,9 +236,16 @@ function ConfirmationModal({ visible, title, description, confirmText, onConfirm
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function SettingsScreen({ navigation }: any): React.JSX.Element {
-  const { colors, isDark } = useAppTheme();
+  const { colors, isDark, setThemeMode } = useAppTheme();
   const { language, setLanguage, t } = useLanguage();
   const { isVoiceActive, toggleVoice } = useVoiceContext();
+  
+  const announce = (msgEn: string, msgHi: string) => {
+    if (!talkbackOn) return;
+    Speech.stop();
+    const isHindi = language === "hindi";
+    Speech.speak(isHindi ? msgHi : msgEn, { language: isHindi ? "hi-IN" : "en-US" });
+  };
   
   const [contacts, setContacts] = useState<SOSContact[]>([]);
   const [newContactName, setNewContactName] = useState("");
@@ -297,9 +310,8 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     setHapticsOn(newValue);
     setHapticsEnabled(newValue);
     await AsyncStorage.setItem("@setting_haptics", newValue.toString());
-    const msg = newValue ? (language === "hindi" ? "वाइब्रेशन चालू है" : "Haptics enabled") : (language === "hindi" ? "वाइब्रेशन बंद है" : "Haptics disabled");
-    if (talkbackOn) Speech.speak(msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
-    Toast.show({ type: "success", text1: "Settings updated", text2: msg });
+    announce("Haptics " + (newValue ? "enabled" : "disabled"), newValue ? "वाइब्रेशन चालू है" : "वाइब्रेशन बंद है");
+    Toast.show({ type: "success", text1: "Settings updated", text2: newValue ? "Haptics enabled" : "Haptics disabled" });
   };
 
   const toggleTalkback = async () => {
@@ -307,7 +319,10 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     setTalkbackOn(newValue);
     await AsyncStorage.setItem("@setting_talkback", newValue.toString());
     const msg = newValue ? (language === "hindi" ? "टॉकबैक चालू है" : "TalkBack enabled") : (language === "hindi" ? "टॉकबैक बंद है" : "TalkBack disabled");
-    if (newValue) Speech.speak(msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    if (newValue) {
+      Speech.stop();
+      Speech.speak(msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+    }
     Toast.show({ type: "success", text1: "Settings updated", text2: msg });
   };
 
@@ -315,9 +330,11 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     const newLang = language === "english" ? "hindi" : "english";
     await setLanguage(newLang);
     triggerHaptic("light");
-    const msg = newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English";
-    if (talkbackOn) Speech.speak(msg, { language: newLang === "hindi" ? "hi-IN" : "en-US" });
-    Toast.show({ type: "success", text1: "Language updated", text2: msg });
+    if (talkbackOn) {
+      Speech.stop();
+      Speech.speak(newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English", { language: newLang === "hindi" ? "hi-IN" : "en-US" });
+    }
+    Toast.show({ type: "success", text1: "Language updated", text2: newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English" });
   };
 
   const saveContactsData = async (data: SOSContact[]) => {
@@ -344,6 +361,10 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
 
   const removeContact = (id: string) => {
     setDeleteContactId(id);
+    announce(
+      "Are you sure you want to remove this contact? Cancel is on the left, Delete is on the right.",
+      "क्या आप इस संपर्क को हटाना चाहते हैं? रद्द करें बाईं ओर है, डिलीट दाईं ओर है।"
+    );
   };
 
   const confirmRemoveContact = () => {
@@ -362,6 +383,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     const updated = contacts.map(c => ({ ...c, isPrimary: c.id === id }));
     saveContactsData(updated);
     triggerHaptic("light");
+    
+    const newPrimary = updated.find(c => c.isPrimary);
+    if (newPrimary) {
+      announce(
+        `Primary contact set to ${newPrimary.name}`,
+        `प्राथमिक संपर्क ${newPrimary.name} पर सेट किया गया`
+      );
+    }
+    
     Toast.show({ type: "success", text1: "Primary contact set" });
   };
 
@@ -465,11 +495,20 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
   const handleLogout = () => {
     triggerHaptic("medium");
     setLogoutModalVisible(true);
+    announce(
+      "Are you sure you want to log out? Cancel is on the left, Log Out is on the right.",
+      "क्या आप सच में लॉग आउट करना चाहते हैं? रद्द करें बाईं ओर है, लॉग आउट दाईं ओर है।"
+    );
   };
 
   const confirmLogout = async () => {
     try {
+      setLogoutModalVisible(false);
+      announce("Logging out", "लॉग आउट किया जा रहा है");
       triggerHaptic("warning");
+      
+      // Reset theme to system default upon logout
+      setThemeMode("system");
       if (isVoiceActive) {
         toggleVoice();
       }
@@ -758,12 +797,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
-                  if (talkbackOn) Speech.speak(language === "hindi" ? "EchoVision के बारे में खोला जा रहा है" : "Opening About EchoVision", { language: language === "hindi" ? "hi-IN" : "en-US" });
-                  navigation.navigate("LegalViewer", { title: "About EchoVision", content: legalDocuments.aboutApp });
+                  announce("Opening About EchoVision", "EchoVision के बारे में खोला जा रहा है");
+                  navigation.navigate("LegalViewer", { 
+                    title: language === "hindi" ? "EchoVision के बारे में" : "About EchoVision", 
+                    content: language === "hindi" ? legalDocumentsHi.aboutApp : legalDocuments.aboutApp 
+                  });
                 }}
               >
                 <SettingRow 
-                  title="About EchoVision" 
+                  title={language === "hindi" ? "EchoVision के बारे में" : "About EchoVision"} 
                   icon="info"
                   iconBg="#0171DF"
                   rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
@@ -773,12 +815,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
-                  if (talkbackOn) Speech.speak(language === "hindi" ? "प्राइवेसी पॉलिसी खोली जा रही है" : "Opening Privacy Policy", { language: language === "hindi" ? "hi-IN" : "en-US" });
-                  navigation.navigate("LegalViewer", { title: "Privacy Policy", content: legalDocuments.privacyPolicy });
+                  announce("Opening Privacy Policy", "प्राइवेसी पॉलिसी खोली जा रही है");
+                  navigation.navigate("LegalViewer", { 
+                    title: language === "hindi" ? "प्राइवेसी पॉलिसी" : "Privacy Policy", 
+                    content: language === "hindi" ? legalDocumentsHi.privacyPolicy : legalDocuments.privacyPolicy 
+                  });
                 }}
               >
                 <SettingRow 
-                  title="Privacy Policy" 
+                  title={language === "hindi" ? "प्राइवेसी पॉलिसी" : "Privacy Policy"} 
                   icon="shield"
                   iconBg="#00C4B4"
                   rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
@@ -788,12 +833,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
-                  if (talkbackOn) Speech.speak(language === "hindi" ? "सेवा की शर्तें खोली जा रही हैं" : "Opening Terms of Service", { language: language === "hindi" ? "hi-IN" : "en-US" });
-                  navigation.navigate("LegalViewer", { title: "Terms of Service", content: legalDocuments.termsOfService });
+                  announce("Opening Terms of Service", "सेवा की शर्तें खोली जा रही हैं");
+                  navigation.navigate("LegalViewer", { 
+                    title: language === "hindi" ? "सेवा की शर्तें" : "Terms of Service", 
+                    content: language === "hindi" ? legalDocumentsHi.termsOfService : legalDocuments.termsOfService 
+                  });
                 }}
               >
                 <SettingRow 
-                  title="Terms of Service" 
+                  title={language === "hindi" ? "सेवा की शर्तें" : "Terms of Service"} 
                   icon="file-text"
                   iconBg="#8E44AD"
                   rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
@@ -803,12 +851,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
-                  if (talkbackOn) Speech.speak(language === "hindi" ? "कुकी नीति खोली जा रही है" : "Opening Cookie Policy", { language: language === "hindi" ? "hi-IN" : "en-US" });
-                  navigation.navigate("LegalViewer", { title: "Cookie Policy", content: legalDocuments.cookiePolicy });
+                  announce("Opening Cookie Policy", "कुकी नीति खोली जा रही है");
+                  navigation.navigate("LegalViewer", { 
+                    title: language === "hindi" ? "कुकी नीति" : "Cookie Policy", 
+                    content: language === "hindi" ? legalDocumentsHi.cookiePolicy : legalDocuments.cookiePolicy 
+                  });
                 }}
               >
                 <SettingRow 
-                  title="Cookie Policy" 
+                  title={language === "hindi" ? "कुकी नीति" : "Cookie Policy"} 
                   icon="database"
                   iconBg="#F39C12"
                   rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
@@ -818,12 +869,15 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
               <Pressable 
                 onPress={() => {
                   triggerHaptic("light");
-                  if (talkbackOn) Speech.speak(language === "hindi" ? "लाइसेंस खोला जा रहा है" : "Opening End-User License", { language: language === "hindi" ? "hi-IN" : "en-US" });
-                  navigation.navigate("LegalViewer", { title: "End-User License", content: legalDocuments.license });
+                  announce("Opening End-User License", "लाइसेंस खोला जा रहा है");
+                  navigation.navigate("LegalViewer", { 
+                    title: language === "hindi" ? "लाइसेंस" : "End-User License", 
+                    content: language === "hindi" ? legalDocumentsHi.license : legalDocuments.license 
+                  });
                 }}
               >
                 <SettingRow 
-                  title="End-User License" 
+                  title={language === "hindi" ? "लाइसेंस" : "End-User License"} 
                   icon="award"
                   iconBg="#3498DB"
                   rightElement={<Feather name="chevron-right" size={20} color={colors.textSecondary} />}
@@ -849,11 +903,16 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
 
       <ConfirmationModal
         visible={logoutModalVisible}
-        title="Log Out"
-        description="Are you sure you want to log out of EchoVision?"
-        confirmText="Log Out"
+        title={language === "hindi" ? "लॉग आउट" : "Log Out"}
+        description={language === "hindi" ? "क्या आप सच में EchoVision से लॉग आउट करना चाहते हैं?" : "Are you sure you want to log out of EchoVision?"}
+        confirmText={language === "hindi" ? "लॉग आउट" : "Log Out"}
+        cancelText={language === "hindi" ? "रद्द करें" : "Cancel"}
         onConfirm={confirmLogout}
-        onCancel={() => setLogoutModalVisible(false)}
+        onCancel={() => {
+          triggerHaptic("light");
+          announce("Logout cancelled", "लॉग आउट रद्द किया गया");
+          setLogoutModalVisible(false);
+        }}
         isDanger={true}
         colors={colors}
         isDark={isDark}
@@ -861,11 +920,16 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
 
       <ConfirmationModal
         visible={deleteContactId !== null}
-        title="Delete Contact"
-        description={`Are you sure you want to remove ${contacts.find(c => c.id === deleteContactId)?.name || 'this contact'} from your SOS list?`}
-        confirmText="Delete"
+        title={language === "hindi" ? "संपर्क हटाएं" : "Delete Contact"}
+        description={language === "hindi" ? `क्या आप सच में ${contacts.find(c => c.id === deleteContactId)?.name || 'इस संपर्क'} को अपनी SOS सूची से हटाना चाहते हैं?` : `Are you sure you want to remove ${contacts.find(c => c.id === deleteContactId)?.name || 'this contact'} from your SOS list?`}
+        confirmText={language === "hindi" ? "डिलीट" : "Delete"}
+        cancelText={language === "hindi" ? "रद्द करें" : "Cancel"}
         onConfirm={confirmRemoveContact}
-        onCancel={() => setDeleteContactId(null)}
+        onCancel={() => {
+          triggerHaptic("light");
+          announce("Contact deletion cancelled", "संपर्क हटाना रद्द किया गया");
+          setDeleteContactId(null);
+        }}
         isDanger={true}
         colors={colors}
         isDark={isDark}
