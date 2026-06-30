@@ -521,18 +521,23 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         onDone: () => {
             isSpeechActiveRef.current = false;
             processAudioQueue();
+            // Only start the WebSocket AFTER the announcement finishes.
+            // This prevents the speaker's "Assistant is on" from echoing
+            // into the mic and confusing Deepgram's VAD for 60+ seconds.
+            startStreamingSession();
         },
         onStopped: () => {
             isSpeechActiveRef.current = false;
             processAudioQueue();
+            startStreamingSession();
         },
         onError: () => {
             isSpeechActiveRef.current = false;
             processAudioQueue();
+            startStreamingSession();
         }
       });
       triggerHaptic("warning");
-      startStreamingSession();
     }
   };
 

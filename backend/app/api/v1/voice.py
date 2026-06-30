@@ -525,21 +525,45 @@ async def voice_stream_endpoint(
     async def tts_pipeline_worker():
         sarvam_lang = "hi-IN" if language.lower() in ["hindi", "hinglish"] else "en-IN"
         import aiohttp
-        async with aiohttp.ClientSession() as client:
-            while True:
-                sentence = await tts_queue.get()
-                if sentence is None: break
-                
+        tts_headers = {"api-subscription-key": sarvam_key, "Content-Type": "application/json"}
+        tts_url = "https://api.sarvam.ai/text-to-speech"
+
+        async with aiohttp.ClientSession() as tts_session:
+            # ── Pre-warm: pay the DNS+TCP+TLS cost upfront ──
+            try:
+                async with tts_session.post(
+                    tts_url,
+                    json={"inputs": ["."], "target_language_code": sarvam_lang, "speaker": "ashutosh", "model": "bulbul:v3"},
+                    headers=tts_headers
+                ) as _:
+                    pass  # We don't care about the result, just warming the connection pool
+                logger.info("🔥 TTS connection pre-warmed")
+            except Exception:
+                pass  # Non-fatal, first real request will just be slightly slower
+
+            # ── Parallel download, ordered delivery ──
+            # Each TTS chunk is downloaded concurrently, but sent to the
+            # client in strict FIFO order using an asyncio.Event chain.
+            # This ensures audio never overlaps or arrives out of order.
+            prev_ready = asyncio.Event()
+            prev_ready.set()  # First chunk has no predecessor to wait for
+
+            async def fetch_and_send(sentence: str, my_turn: asyncio.Event, next_turn: asyncio.Event):
+                """Download TTS audio, then wait for my_turn before sending to client."""
                 clean_sentence = re.sub(r'[*_#`]', '', sentence).strip()
-                if not clean_sentence: continue
-                    
+                if not clean_sentence:
+                    await my_turn.wait()  # Still need to signal next
+                    next_turn.set()
+                    return
+
+                audio_b64 = None
                 try:
                     logger.info(f"🎙️ TTS Fetching: '{clean_sentence}'")
                     tts_start = time.time()
-                    async with client.post(
-                        "https://api.sarvam.ai/text-to-speech",
+                    async with tts_session.post(
+                        tts_url,
                         json={"inputs": [clean_sentence], "target_language_code": sarvam_lang, "speaker": "ashutosh", "model": "bulbul:v3"},
-                        headers={"api-subscription-key": sarvam_key}
+                        headers=tts_headers
                     ) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -547,16 +571,40 @@ async def voice_stream_endpoint(
                                 tts_duration = (time.time() - tts_start) * 1000
                                 logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
                                 audio_b64 = data["audios"][0]
-                                try:
-                                    await websocket.send_text(json.dumps({"type": "audio", "data": audio_b64}))
-                                except Exception as ws_err:
-                                    logger.warning(f"Could not send audio to websocket: {ws_err}")
-                                    break
                         else:
                             error_text = await res.text()
                             logger.error(f"TTS API Error: {res.status} - {error_text}")
                 except Exception as e:
-                    logger.error(f"TTS Worker Error: {e}")
+                    logger.error(f"TTS Fetch Error: {e}")
+
+                # Wait for previous chunk to finish sending before we send ours
+                await my_turn.wait()
+
+                if audio_b64:
+                    try:
+                        await websocket.send_text(json.dumps({"type": "audio", "data": audio_b64}))
+                    except Exception as ws_err:
+                        logger.warning(f"Could not send audio to websocket: {ws_err}")
+
+                # Signal the next chunk that it's their turn
+                next_turn.set()
+
+            active_tasks = []
+            while True:
+                sentence = await tts_queue.get()
+                if sentence is None:
+                    break
+
+                # Chain: this chunk waits for prev_ready, then signals its own next_ready
+                my_turn = prev_ready
+                next_ready = asyncio.Event()
+                task = asyncio.create_task(fetch_and_send(sentence, my_turn, next_ready))
+                active_tasks.append(task)
+                prev_ready = next_ready
+
+            # Wait for all in-flight TTS tasks to complete before exiting
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
 
     try:
         ingest_task = asyncio.create_task(audio_ingest_worker())
