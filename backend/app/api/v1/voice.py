@@ -127,10 +127,11 @@ async def voice_stream_endpoint(
                         elif wmo in [71, 73, 75, 77, 85, 86]: weather_desc = "Snow"
                         elif wmo in [95, 96, 99]: weather_desc = "Thunderstorm"
                         
+                        loc_str = f" in {current_location}" if current_location else ""
                         weather_context = (
-                            f"\n\nCURRENT WEATHER (Based on User's Location):\n"
+                            f"\n\n[CONTEXT] CURRENT WEATHER{loc_str}:\n"
                             f"Temperature: {temp}°C (Feels like {feels_like}°C). Condition: {weather_desc}. Precipitation (Rain): {precip}mm.\n"
-                            f"WEATHER SPEAKING RULE: When answering weather queries, speak naturally like a local friend using ONLY the actual data provided above. NEVER output any <ACTION:...> tags when answering weather queries!"
+                            f"WEATHER RULE: ONLY mention the weather, temperature, or rain if the user EXPLICITLY asks about it. DO NOT randomly bring up the weather. When answering weather queries, naturally mention the user's city or area (from their location) and use ONLY the actual data provided above."
                         )
             except Exception as e:
                 logger.error(f"Failed to fetch weather: {type(e).__name__} - {e}")
@@ -299,7 +300,7 @@ async def voice_stream_endpoint(
         # Get current date and time in IST
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
-        time_context = f"\n\nCURRENT DATE & TIME:\nToday is {now.strftime('%A, %B %d, %Y')}. The current time is {now.strftime('%I:%M %p')}. TIME SPEAKING RULE: When telling time, speak naturally like a human using the ACTUAL time provided here. DO NOT use robotic literal translations."
+        time_context = f"\n\n[CONTEXT] CURRENT DATE & TIME:\nToday is {now.strftime('%A, %B %d, %Y')}. The current time is {now.strftime('%I:%M %p')}. TIME RULE: ONLY state the time or date if the user EXPLICITLY asks for it. DO NOT randomly bring up the time in casual conversation. When answering time queries, speak naturally."
         
         if weather_context:
             time_context += weather_context
