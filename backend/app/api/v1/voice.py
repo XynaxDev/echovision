@@ -543,16 +543,16 @@ async def voice_stream_endpoint(
                     ) as res:
                         if res.status == 200:
                             data = await res.json()
-                        if "audios" in data and len(data["audios"]) > 0:
-                            tts_duration = (time.time() - tts_start) * 1000
-                            logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
-                            audio_b64 = data["audios"][0]
-                            try:
-                                await websocket.send_text(json.dumps({"type": "audio", "data": audio_b64}))
-                            except Exception as ws_err:
-                                logger.warning(f"Could not send audio to websocket: {ws_err}")
-                                break
-                    else:
+                            if "audios" in data and len(data["audios"]) > 0:
+                                tts_duration = (time.time() - tts_start) * 1000
+                                logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
+                                audio_b64 = data["audios"][0]
+                                try:
+                                    await websocket.send_text(json.dumps({"type": "audio", "data": audio_b64}))
+                                except Exception as ws_err:
+                                    logger.warning(f"Could not send audio to websocket: {ws_err}")
+                                    break
+                        else:
                             error_text = await res.text()
                             logger.error(f"TTS API Error: {res.status} - {error_text}")
                 except Exception as e:
