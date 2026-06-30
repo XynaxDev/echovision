@@ -524,7 +524,8 @@ async def voice_stream_endpoint(
 
     async def tts_pipeline_worker():
         sarvam_lang = "hi-IN" if language.lower() in ["hindi", "hinglish"] else "en-IN"
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        import aiohttp
+        async with aiohttp.ClientSession() as client:
             while True:
                 sentence = await tts_queue.get()
                 if sentence is None: break
@@ -535,14 +536,13 @@ async def voice_stream_endpoint(
                 try:
                     logger.info(f"🎙️ TTS Fetching: '{clean_sentence}'")
                     tts_start = time.time()
-                    res = await client.post(
+                    async with client.post(
                         "https://api.sarvam.ai/text-to-speech",
                         json={"inputs": [clean_sentence], "target_language_code": sarvam_lang, "speaker": "ashutosh", "model": "bulbul:v3"},
                         headers={"api-subscription-key": sarvam_key}
-                    )
-                    
-                    if res.status_code == 200:
-                        data = res.json()
+                    ) as res:
+                        if res.status == 200:
+                            data = await res.json()
                         if "audios" in data and len(data["audios"]) > 0:
                             tts_duration = (time.time() - tts_start) * 1000
                             logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
@@ -553,7 +553,8 @@ async def voice_stream_endpoint(
                                 logger.warning(f"Could not send audio to websocket: {ws_err}")
                                 break
                     else:
-                        logger.error(f"TTS API Error: {res.status_code} - {res.text}")
+                            error_text = await res.text()
+                            logger.error(f"TTS API Error: {res.status} - {error_text}")
                 except Exception as e:
                     logger.error(f"TTS Worker Error: {e}")
 

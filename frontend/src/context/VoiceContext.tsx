@@ -200,13 +200,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       // Quietly restart websocket to pass new language to backend
       // Delay to let the AI finish saying "Changing language" before the socket cuts
       setTimeout(() => {
-          if (voiceActiveRef.current && wsRef.current) {
-              wsRef.current.close();
-              setTimeout(() => {
-                  if (voiceActiveRef.current) {
-                      startStreamingSession();
-                  }
-              }, 500);
+          if (voiceActiveRef.current) {
+              restartStreamingSession();
           }
       }, 3500);
     }
@@ -558,10 +553,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const restartStreamingSession = () => {
     console.log("♻️ Seamlessly restarting websocket stream...");
     if (wsRef.current) {
+      wsRef.current.onclose = null; // Prevent UI state from thinking it crashed
       wsRef.current.close();
       wsRef.current = null;
     }
-    startStreamingSession();
+    setTimeout(() => {
+        if (voiceActiveRef.current) {
+            startStreamingSession();
+        }
+    }, 500);
   };
 
   toggleVoiceRef.current = toggleVoice;

@@ -32,3 +32,4 @@ backend/build/
 backend/serviceAccountKey.json
 backend/*.wav
 backend/*.mp3
+test_httpx_vs_aiohttp.py
