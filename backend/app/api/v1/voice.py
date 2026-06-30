@@ -358,7 +358,7 @@ async def voice_stream_endpoint(
                 is_first_chunk = True
                 
                 # Assemble system prompt with the LATEST active_page
-                current_system = SYSTEM_PROMPT + "\n" + sys_lang + location_context + time_context + "\n" + user_context
+                current_system = SYSTEM_PROMPT + "\n" + sys_lang + location_context + time_context + weather_context + "\n" + user_context
                 current_system += f"\n\nCURRENT PAGE: {active_page}\n"
                 if active_page not in ["Scene Scanner", "Text Reader"]:
                     current_system += "CRITICAL: You are NOT on a camera page. If the user asks to take a photo or scan, you MUST output <ACTION: SCENE_SCANNER> BEFORE <ACTION: CAPTURE>. If the user asks to turn on the flashlight, DO NOT output <ACTION: FLASHLIGHT>. Instead, tell the user that the flashlight can only be used on the scanner screens."
@@ -467,8 +467,20 @@ async def voice_stream_endpoint(
                                     
                                     action_match = re.search(r"<ACTION:\s*([^>]+)>", buffer)
 
-                                if any(punct in token for punct in [".", "?", "!", "।", "\n"]) or ("," in token and len(buffer.strip()) > (15 if is_first_chunk else 45)):
-                                    sentence = buffer.strip()
+                                buffer_stripped = buffer.strip()
+                                # Check for end-of-sentence punctuation or comma with length constraints
+                                puncts = [".", "?", "!", "।", "\n"]
+                                split_idx = -1
+                                
+                                if any(p in token for p in puncts):
+                                    split_idx = max(buffer.rfind(p) for p in puncts)
+                                elif "," in token and len(buffer_stripped) > (20 if is_first_chunk else 45):
+                                    split_idx = buffer.rfind(",")
+                                
+                                if split_idx != -1:
+                                    sentence = buffer[:split_idx+1].strip()
+                                    buffer = buffer[split_idx+1:] # Keep the remainder for the next chunk
+                                    
                                     if sentence:
                                         # Fix Llama stuttering duplicate phrases (e.g., "मैं Settings खोल रहा हूँ मैं Settings खोल रहा हूँ")
                                         half = len(sentence) // 2
@@ -481,7 +493,6 @@ async def voice_stream_endpoint(
                                             if "<ACTION" not in sentence:
                                                 is_first_chunk = False
                                                 await tts_queue.put(sentence)
-                                    buffer = ""
                     
                     # ── DETERMINISTIC FALLBACK ──
                     # If user asked for photo AND LLM opened scanner but forgot CAPTURE → inject it
