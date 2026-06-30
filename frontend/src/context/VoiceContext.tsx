@@ -190,28 +190,31 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     else if (upperCommand.includes("LIGHT_MODE")) setThemeMode("light");
     else if (upperCommand.includes("HAPTICS_OFF")) setHapticsEnabled(false);
     else if (upperCommand.includes("HAPTICS_ON")) setHapticsEnabled(true);
+    else if (upperCommand.includes("TALKBACK_OFF")) AsyncStorage.setItem("@setting_talkback", "false");
+    else if (upperCommand.includes("TALKBACK_ON")) AsyncStorage.setItem("@setting_talkback", "true");
     
     else if (upperCommand.includes("CHANGE_LANGUAGE")) {
       const newLang = upperCommand.includes("ENGLISH") ? "english" : upperCommand.includes("HINGLISH") ? "hinglish" : "hindi";
       await setLanguage(newLang);
       
-      // Stop any AI TTS from playing the response in the wrong language
-      if (soundRef.current && isPlaying.current) {
-         soundRef.current.stopAsync().catch(() => {});
-         isPlaying.current = false;
-      }
-      audioQueue.current = [];
-      playLocalAnnouncement(
-          newLang === "english" ? "Language changed to English" : "भाषा बदल दी गई है", 
-          newLang === "english" ? "en-US" : "hi-IN",
-          () => {
-              // Restart voice session so backend loads new language models
-              if (voiceActiveRef.current) {
-                toggleVoiceRef.current(); 
-                setTimeout(() => toggleVoiceRef.current(), 1500); 
-              }
+      // Quietly restart websocket to pass new language to backend
+      // Delay to let the AI finish saying "Changing language" before the socket cuts
+      setTimeout(() => {
+          if (voiceActiveRef.current && wsRef.current) {
+              wsRef.current.close();
+              setTimeout(() => {
+                  if (voiceActiveRef.current) {
+                      startStreamingSession();
+                  }
+              }, 500);
           }
-      );
+      }, 3500);
+    }
+    else if (upperCommand.includes("UPDATE_LOCATION")) {
+      // Re-fetch the current location via location hook/function if we had one here
+      // But since VoiceContext doesn't have the Location logic, we can route it to Settings 
+      // or just call the utility if we extract it. For now, we will navigate to Settings so they can see it update.
+      navigateDelegateRef.current("Settings");
     }
     else if (upperCommand.includes("MAP_TARGET")) {
       Linking.openURL(Platform.OS === 'ios' ? 'http://maps.apple.com/' : 'google.navigation:q=');
