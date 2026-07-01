@@ -49,7 +49,8 @@ def test_voice_prompt_preserves_required_action_tags():
         "<ACTION: LEGAL_COOKIE>",
         "<ACTION: LEGAL_LICENSE>",
         "<ACTION: CAPTURE>",
-        "<ACTION: FLASHLIGHT>",
+        "<ACTION: FLASHLIGHT_ON>",
+        "<ACTION: FLASHLIGHT_OFF>",
         "<ACTION: INTERRUPT_TTS>",
         "<ACTION: TURN_OFF_ASSISTANT>",
     ]
@@ -83,7 +84,8 @@ def test_frontend_handles_prompted_action_commands():
         "LEGAL_COOKIE",
         "LEGAL_LICENSE",
         "CAPTURE",
-        "FLASHLIGHT",
+        "FLASHLIGHT_ON",
+        "FLASHLIGHT_OFF",
         "INTERRUPT_TTS",
         "TURN_OFF_ASSISTANT",
     ]
@@ -122,3 +124,11 @@ def test_language_repair_guard_exists_for_streamed_tts():
     assert "language_safe_history" in voice_source
     assert "enforce_spoken_language" in voice_source
     assert "language_repaired" in voice_source
+
+
+def test_unclear_close_commands_are_clarified_before_llm_actions():
+    voice_source = read_repo_file("backend/app/api/v1/voice.py")
+
+    assert "unclear_close_command" in voice_source
+    assert "clarified_unclear_close_command" in voice_source
+    assert "Never use <ACTION: GO_BACK>" in voice_source

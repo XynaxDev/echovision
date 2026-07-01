@@ -344,7 +344,7 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
     registerContextualCommands({
       activePage: "Scene Scanner",
       onCapture: handleCapture,
-      onFlashlightToggle: () => setTorch(t => !t),
+      onFlashlightToggle: (enabled?: boolean) => setTorch((current) => enabled ?? !current),
       onVoiceToggle: async (isActive: boolean) => {
         if (!isActive) {
           const wasPlaying = soundRef.current !== null && isStreamingRef.current;

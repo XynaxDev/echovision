@@ -201,7 +201,7 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
     registerContextualCommands({
       activePage: "Text Reader",
       onCapture: handleCapture,
-      onFlashlightToggle: () => setTorch((t) => !t),
+      onFlashlightToggle: (enabled?: boolean) => setTorch((current) => enabled ?? !current),
       onVoiceToggle: async (isActive: boolean) => {
         if (!isActive) {
           const wasPlaying = soundRef.current !== null && isStreamingRef.current;

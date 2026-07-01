@@ -26,7 +26,7 @@ import { legalDocuments, legalDocumentsHi } from "../data/legal";
 
 export interface ContextualCommands {
   onCapture?: () => boolean | void | Promise<boolean> | Promise<void>;
-  onFlashlightToggle?: () => void;
+  onFlashlightToggle?: (enabled?: boolean) => void;
   isWaitingForSOS?: boolean;
   onConfirmSOS?: () => void;
   onCancelSOS?: (fromVoice?: boolean) => void;
@@ -270,9 +270,14 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
     // Local contextual commands
     else if (upperCommand.includes("FLASHLIGHT")) {
+        const requestedState = upperCommand.includes("FLASHLIGHT_ON")
+          ? true
+          : upperCommand.includes("FLASHLIGHT_OFF")
+            ? false
+            : undefined;
         const pollFlashlight = async (retries = 0) => {
            if (contextualCommandsRef.current.onFlashlightToggle) {
-               contextualCommandsRef.current.onFlashlightToggle();
+               contextualCommandsRef.current.onFlashlightToggle(requestedState);
                return;
            }
            if (retries > 100) return; // Timeout after 10 seconds

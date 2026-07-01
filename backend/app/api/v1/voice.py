@@ -79,7 +79,8 @@ SUPPORTED ACTIONS:
 - Cookie Policy: <ACTION: LEGAL_COOKIE>
 - End-User License: <ACTION: LEGAL_LICENSE>
 - Capture Photo / Click Photo: <ACTION: CAPTURE>
-- Turn on/off Flashlight: <ACTION: FLASHLIGHT>
+- Turn on Flashlight: <ACTION: FLASHLIGHT_ON>
+- Turn off Flashlight: <ACTION: FLASHLIGHT_OFF>
 - Stop Reading / Interrupt: <ACTION: INTERRUPT_TTS>
 - Stop/Close Voice Assistant: <ACTION: TURN_OFF_ASSISTANT>
 
@@ -89,6 +90,8 @@ GROUNDING AND SAFETY:
 - Do not answer general knowledge, politics, sports, coding, trivia, medical, legal, or financial questions. Briefly say you can help with EchoVision, current weather/time/location, navigation distance, and app actions.
 - Never ask blind users visual questions like what they can see. Offer app actions such as taking a photo, opening Scene Scanner, reading text, or turning on flashlight when appropriate.
 - Never output unsupported actions or map a request to the wrong action just to be helpful.
+- If a close/off/stop command has an unclear target, ask the user to repeat or clarify naturally. Do not guess and do not output any action tag.
+- Never use <ACTION: GO_BACK> for "band karo", "close it", "turn off", or "stop" unless the user explicitly says back, previous screen, go back, or names a page/screen to leave.
 
 SETTINGS AND APP KNOWLEDGE:
 - Settings contains language, theme, text size, haptics, TalkBack feedback, current location update, profile name/home address, SOS contacts, legal pages, and logout.
@@ -380,7 +383,9 @@ async def voice_stream_endpoint(
                 "ACTION PATTERNS, NOT SCRIPTS:\n"
                 "- Settings request: output <ACTION: SETTINGS> and a short natural confirmation.\n"
                 "- Scanner plus photo request: output <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> and a short natural confirmation.\n"
-                "- Never say you are doing an action unless the matching action tag is present."
+                "- Never say you are doing an action unless the matching action tag is present.\n"
+                "- For Flashlight, use <ACTION: FLASHLIGHT_ON> for on/chalu and <ACTION: FLASHLIGHT_OFF> for off/band. Do not use a generic toggle when the user said on or off.\n"
+                "- If the user says something like 'band karo' but the object is unclear, ask them to repeat naturally. Do not guess GO_BACK."
             )
         else:
             sys_lang = (
@@ -392,7 +397,9 @@ async def voice_stream_endpoint(
                 "ACTION PATTERNS, NOT SCRIPTS:\n"
                 "- Settings request: output <ACTION: SETTINGS> and a short natural confirmation.\n"
                 "- Scanner plus photo request: output <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> and a short natural confirmation.\n"
-                "- Never say you are doing an action unless the matching action tag is present."
+                "- Never say you are doing an action unless the matching action tag is present.\n"
+                "- For Flashlight, use <ACTION: FLASHLIGHT_ON> for on and <ACTION: FLASHLIGHT_OFF> for off. Do not use a generic toggle when the user said on or off.\n"
+                "- If the user says something like 'turn it off' but the object is unclear, ask them to repeat naturally. Do not guess GO_BACK."
             )
 
         location_context = f"\n\nCURRENT PAGE CONTEXT:\nThe user is currently on the '{active_page}' page of the app."
@@ -480,6 +487,71 @@ async def voice_stream_endpoint(
                     ]
                     return any(term in lowered or term in text for term in weather_terms)
 
+                def clarification_text(text: str) -> str:
+                    if selected_language == "english":
+                        options = [
+                            "I did not catch what you want me to turn off. Could you repeat that?",
+                            "I am not sure what you want turned off. Please say it once more.",
+                            "I missed the exact command. Please repeat what you want me to close or turn off.",
+                        ]
+                    else:
+                        options = [
+                            "मैं ठीक से समझ नहीं पाई कि क्या बंद करना है। कृपया एक बार फिर दोहराएँ।",
+                            "मुझे साफ़ नहीं सुनाई दिया कि आप क्या बंद करना चाहते हैं। कृपया फिर से बोलें।",
+                            "मैं कमांड पूरी तरह नहीं समझ पाई। कृपया बताइए, क्या बंद करना है?",
+                        ]
+                    idx = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % len(options)
+                    return options[idx]
+
+                def unclear_close_command(text: str) -> bool:
+                    lowered = text.lower()
+                    has_close_intent = any(
+                        term in lowered or term in text
+                        for term in [
+                            "band",
+                            "close",
+                            "turn off",
+                            "shut",
+                            "stop",
+                            "बंद",
+                            "रोक",
+                            "रोको",
+                        ]
+                    )
+                    if not has_close_intent:
+                        return False
+
+                    known_targets = [
+                        "flash",
+                        "flashlight",
+                        "torch",
+                        "light",
+                        "assistant",
+                        "voice",
+                        "audio",
+                        "reading",
+                        "reader",
+                        "scanner",
+                        "camera",
+                        "sos",
+                        "text reader",
+                        "scene",
+                        "back",
+                        "previous",
+                        "फ्लैश",
+                        "लाइट",
+                        "टॉर्च",
+                        "असिस्टेंट",
+                        "आवाज़",
+                        "ऑडियो",
+                        "रीडर",
+                        "स्कैनर",
+                        "कैमरा",
+                        "पीछे",
+                        "पिछली",
+                    ]
+                    return not any(term in lowered or term in text for term in known_targets)
+
                 def has_devanagari(text: str) -> bool:
                     return bool(re.search(r"[\u0900-\u097F]", text))
 
@@ -545,6 +617,14 @@ async def voice_stream_endpoint(
                     return clean
                 
                 # Assemble system prompt with the LATEST active_page
+                if unclear_close_command(query):
+                    await tts_queue.put(clarification_text(query))
+                    log_voice_event(
+                        "clarified_unclear_close_command",
+                        transcript_hash=hashlib.sha256(query.encode()).hexdigest()[:12],
+                    )
+                    return
+
                 if user_asked_weather(query) and current_lat and current_lon and (
                     not weather_context or time.time() - weather_last_fetched > 180
                 ):
@@ -568,9 +648,9 @@ async def voice_stream_endpoint(
                 current_system = SYSTEM_PROMPT + "\n" + sys_lang + language_override + location_context + effective_time_context + "\n" + user_context
                 current_system += f"\n\nCURRENT PAGE: {active_page}\n"
                 if active_page not in ["Scene Scanner", "Text Reader"]:
-                    current_system += "CRITICAL: You are NOT on a camera page. If the user asks to take a photo or scan, you MUST output <ACTION: SCENE_SCANNER> BEFORE <ACTION: CAPTURE>. If the user asks to turn on the flashlight, DO NOT output <ACTION: FLASHLIGHT>. Instead, tell the user that the flashlight can only be used on the scanner screens."
+                    current_system += "CRITICAL: You are NOT on a camera page. If the user asks to take a photo or scan, you MUST output <ACTION: SCENE_SCANNER> BEFORE <ACTION: CAPTURE>. If the user asks to turn the flashlight on or off, DO NOT output a flashlight action. Instead, tell the user that the flashlight can only be used on scanner or reader camera screens."
                 else:
-                    current_system += "CRITICAL: You are ALREADY on a camera page. If the user asks to take a photo, you MUST ONLY output <ACTION: CAPTURE>. DO NOT output <ACTION: SCENE_SCANNER>. If they ask to turn on the flashlight, you may output <ACTION: FLASHLIGHT>."
+                    current_system += "CRITICAL: You are ALREADY on a camera page. If the user asks to take a photo, you MUST ONLY output <ACTION: CAPTURE>. DO NOT output <ACTION: SCENE_SCANNER>. If they ask to turn the flashlight on, output <ACTION: FLASHLIGHT_ON>. If they ask to turn it off, output <ACTION: FLASHLIGHT_OFF>."
                 
                 
                 messages = [{"role": "system", "content": current_system}]
