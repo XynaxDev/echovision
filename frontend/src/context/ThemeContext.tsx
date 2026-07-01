@@ -158,7 +158,7 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
 
   // ── Memoized context value ───────────────────────────────────────────
   const contextValue = useMemo<ThemeContextValue>(() => {
-    const fontScale = textSize === "large" ? 1.4 : textSize === "small" ? 0.9 : 1.1;
+    const fontScale = textSize === "large" ? 1.4 : textSize === "small" ? 0.9 : 1.0;
     return {
       themeMode,
       colors: resolvedColors.colors,

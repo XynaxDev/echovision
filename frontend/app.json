@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/echovisionapplogo_cropped.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#0B1527"
     },
     "ios": {
       "supportsTablet": true,
@@ -27,7 +27,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/echovisionapplogo_cropped.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0B1527"
       },
       "package": "com.echovision.app",
       "googleServicesFile": "./google-services.json",
@@ -75,7 +75,7 @@
         "expo-build-properties",
         {
           "android": {
-            "enableProguardInReleaseBuilds": true
+            "enableProguardInReleaseBuilds": false
           }
         }
       ]

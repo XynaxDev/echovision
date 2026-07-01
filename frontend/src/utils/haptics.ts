@@ -1,6 +1,5 @@
 import { Vibration } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Force haptics on, bypassing storage, since the user is complaining they are off
 let isHapticsEnabled = true;
@@ -22,27 +21,29 @@ export const triggerHaptic = (type: 'light' | 'medium' | 'heavy' | 'success' | '
 
         switch (type) {
             case 'light':
-                Haptics.selectionAsync();
+                Haptics.selectionAsync().catch(() => Vibration.vibrate(30));
                 break;
             case 'medium':
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => Vibration.vibrate(50));
                 break;
             case 'heavy':
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => Vibration.vibrate(100));
                 break;
             case 'success':
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => Vibration.vibrate(80));
                 break;
             case 'warning':
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => Vibration.vibrate(80));
                 break;
             case 'error':
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => Vibration.vibrate(120));
                 break;
             default:
-                Haptics.selectionAsync();
+                Haptics.selectionAsync().catch(() => Vibration.vibrate(30));
         }
     } catch (e) {
-        console.error('Haptics failed:', e);
+        // Last-resort fallback: if the entire expo-haptics module is missing/broken,
+        // still provide tactile feedback through the legacy API
+        try { Vibration.vibrate(50); } catch (_) {}
     }
 };

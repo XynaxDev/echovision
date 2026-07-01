@@ -179,6 +179,14 @@ function AppInner(): React.JSX.Element {
       });
     });
 
+    // ── Pre-warm native engines to eliminate first-tap latency ──
+    // Haptics: Load the native vibration motor driver so first real tap is instant
+    try { Haptics.selectionAsync().catch(() => {}); } catch (_) {}
+    // Speech: Initialize the Android TTS engine so first announcement has no delay
+    import("expo-speech").then((Speech) => {
+      Speech.speak(" ", { volume: 0, rate: 2.0, onDone: () => {}, onError: () => {} });
+    }).catch(() => {});
+
     setNavigationDelegate((target: any, params?: any) => {
       if (navigationRef.current?.isReady()) {
         if (target === "GO_BACK") {

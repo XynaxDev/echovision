@@ -76,24 +76,27 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       staysActiveInBackground: true,
       playThroughEarpieceAndroid: false,
     }).catch(console.warn);
-    LiveAudioStream.init({
-      sampleRate: 16000,
-      channels: 1,
-      bitsPerSample: 16,
-      audioSource: 7, // VOICE_COMMUNICATION (Hardware Echo Cancellation & Noise Suppression)
-      bufferSize: 4096,
-      wavFile: "", // Use empty string instead of relative path to avoid native IO crashes
-    });
-    LiveAudioStream.on('data', (data: string) => {
-        const chunk = Buffer.from(data, 'base64');
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(chunk);
-        } else if (wsRef.current?.readyState === WebSocket.CONNECTING) {
-            micBufferRef.current.push(chunk);
-        }
-    });
-
-    console.log('✅ VoiceContext: Audio stream initialized');
+    try {
+      LiveAudioStream.init({
+        sampleRate: 16000,
+        channels: 1,
+        bitsPerSample: 16,
+        audioSource: 7, // VOICE_COMMUNICATION (Hardware Echo Cancellation & Noise Suppression)
+        bufferSize: 4096,
+        wavFile: "", // Use empty string instead of relative path to avoid native IO crashes
+      });
+      LiveAudioStream.on('data', (data: string) => {
+          const chunk = Buffer.from(data, 'base64');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(chunk);
+          } else if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+              micBufferRef.current.push(chunk);
+          }
+      });
+      console.log('✅ VoiceContext: Audio stream initialized');
+    } catch (e) {
+      console.warn('⚠️ VoiceContext: LiveAudioStream init failed — voice assistant will not work:', e);
+    }
     // 2. Hardware Volume Listener
     const volumeListener = VolumeManager.addVolumeListener((result) => {
       const currentVolume = typeof result === "number" ? result : result.volume;
@@ -506,7 +509,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setIsVoiceActive(true);
       micBufferRef.current = [];
       // Start microphone IMMEDIATELY so no words are dropped while websocket connects
-      LiveAudioStream.start();
+      try { LiveAudioStream.start(); } catch (e) { console.warn('⚠️ LiveAudioStream.start() failed:', e); }
       triggerHaptic("heavy");
       
       if (contextualCommandsRef.current.onVoiceToggle) {
