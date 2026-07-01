@@ -85,7 +85,7 @@ function ThemeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
       Speech.stop();
       Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
-    Toast.show({ type: "success", text1: "Theme updated", text2: msg });
+    Toast.show({ type: "success", text1: language === "hindi" ? "थीम अपडेट हो गई" : "Theme updated", text2: language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg });
   };
 
   const getBg = (mode: "system" | "light" | "dark") => (themeMode === mode ? (isDark ? colors.card : "#FFF") : "transparent");
@@ -122,7 +122,7 @@ function TextSizeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
       Speech.stop();
       Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
-    Toast.show({ type: "success", text1: "Text size updated", text2: msg });
+    Toast.show({ type: "success", text1: language === "hindi" ? "टेक्स्ट का आकार अपडेट हो गया" : "Text size updated", text2: language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg });
   };
 
   const getBg = (size: "small" | "medium" | "large") => (textSize === size ? (isDark ? colors.card : "#FFF") : "transparent");
@@ -311,7 +311,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     setHapticsEnabled(newValue);
     await AsyncStorage.setItem("@setting_haptics", newValue.toString());
     announce("Haptics " + (newValue ? "enabled" : "disabled"), newValue ? "वाइब्रेशन चालू है" : "वाइब्रेशन बंद है");
-    Toast.show({ type: "success", text1: "Settings updated", text2: newValue ? "Haptics enabled" : "Haptics disabled" });
+    Toast.show({ type: "success", text1: language === "hindi" ? "सेटिंग्स अपडेट हो गई" : "Settings updated", text2: newValue ? (language === "hindi" ? "वाइब्रेशन चालू है" : "Haptics enabled") : (language === "hindi" ? "वाइब्रेशन बंद है" : "Haptics disabled") });
   };
 
   const toggleTalkback = async () => {
@@ -323,7 +323,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
       Speech.stop();
       Speech.speak(msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
-    Toast.show({ type: "success", text1: "Settings updated", text2: msg });
+    Toast.show({ type: "success", text1: language === "hindi" ? "सेटिंग्स अपडेट हो गई" : "Settings updated", text2: msg });
   };
 
   const toggleLanguage = async () => {
@@ -334,7 +334,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
       Speech.stop();
       Speech.speak(newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English", { rate: 0.85, language: newLang === "hindi" ? "hi-IN" : "en-US" });
     }
-    Toast.show({ type: "success", text1: "Language updated", text2: newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English" });
+    Toast.show({ type: "success", text1: newLang === "hindi" ? "भाषा बदल दी गई है" : "Language updated", text2: newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English" });
   };
 
   const saveContactsData = async (data: SOSContact[]) => {
