@@ -54,6 +54,7 @@ import {
 } from "./src/navigation/AppNavigator";
 import { VoiceProvider, useVoiceContext } from "./src/context/VoiceContext";
 import { GlobalVoiceOverlay } from "./src/components/GlobalVoiceOverlay";
+import { NetworkWatcher } from "./src/components/NetworkWatcher";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Global Two-Finger Long Press Gesture Wrapper
@@ -276,6 +277,7 @@ function AppInner(): React.JSX.Element {
       <GlobalGestureWrapper navigationRef={navigationRef}>
         <AppNavigator />
       </GlobalGestureWrapper>
+      <NetworkWatcher />
       <GlobalVoiceOverlay />
       <Toast config={toastConfig} />
       </NavigationContainer>
