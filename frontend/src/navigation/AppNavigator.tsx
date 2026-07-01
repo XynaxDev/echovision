@@ -93,7 +93,7 @@ export function AppNavigator(): React.JSX.Element {
 
   return (
     <Stack.Navigator
-      initialRouteName={!hasPermissions ? "Onboarding" : user ? "Dashboard" : "AuthSelection"}
+      initialRouteName={!user ? "AuthSelection" : !hasPermissions ? "Onboarding" : "Dashboard"}
       screenOptions={{
         headerStyle: {
           backgroundColor: colors.background,

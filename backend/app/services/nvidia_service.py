@@ -246,7 +246,7 @@ async def scan_scene_with_nvidia(
     # Step 2: Translate if the user requested a non-English language
     if language.lower() != "english":
         lang_rules = {
-            "hindi": "CRITICAL: Translate the text STRICTLY into conversational Hindi using ONLY the Devanagari script. DO NOT use the English alphabet/Roman script under any circumstances. Translate or transliterate any English or technical words (like ALT -> ऑल्ट, CTRL -> कंट्रोल) into Devanagari script.",
+            "hindi": "CRITICAL: Translate the text strictly into conversational Hindi. You MUST write everything in the Devanagari script. DO NOT use ANY Roman/English letters (A-Z). Transliterate technical terms (e.g. 'terminal' -> 'टर्मिनल', 'keyboard' -> 'कीबोर्ड').",
             "hinglish": "CRITICAL: Translate the text strictly into Hinglish (Hindi written in English alphabet). Do NOT use Devanagari.",
         }
         lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
@@ -267,14 +267,6 @@ async def scan_scene_with_nvidia(
             description = english_description
     else:
         description = english_description
-
-    # Ensure we don't exceed 3 sentences
-    import re
-    sentences = re.split(r"(?<=[।.!?])\s+", description)
-    if len(sentences) > 3:
-        description = " ".join(sentences[:3])
-        if not description.endswith((".", "।", "!", "?")):
-            description += "।"
 
     logger.info("Scene description generated: %s", description[:100])
     return description

@@ -121,8 +121,17 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
       // The backend gets the JWT via `api.ts` interceptor and registers the user.
       await verifyPhoneAuth(name.trim(), `+91${phone}`);
 
+      // Check permissions
+      const cam = await require('expo-camera').Camera.getCameraPermissionsAsync();
+      const mic = await require('expo-av').Audio.getPermissionsAsync();
+      const loc = await require('expo-location').Location.getForegroundPermissionsAsync();
+      
       triggerHaptic("success");
-      navigation.reset({ index: 0, routes: [{ name: "Dashboard" }] });
+      if (cam.status !== 'granted' || mic.status !== 'granted' || loc.status !== 'granted') {
+        navigation.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+      } else {
+        navigation.reset({ index: 0, routes: [{ name: "Dashboard" }] });
+      }
     } catch (error: any) {
       console.error("OTP Verification Error:", error);
       // Clean up Firebase Auth if backend verification fails
