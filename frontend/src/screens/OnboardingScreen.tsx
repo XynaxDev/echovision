@@ -43,9 +43,14 @@ export function OnboardingScreen({ navigation }: Props): React.JSX.Element {
         return; // Don't move onward if denied
       }
 
-      // Proceed to Auth
+      // Proceed based on Auth state
       triggerHaptic("success");
-      navigation.replace("Auth");
+      const currentUser = require("@react-native-firebase/auth").default().currentUser;
+      if (currentUser) {
+        navigation.replace("Dashboard");
+      } else {
+        navigation.replace("Auth");
+      }
     } catch (e) {
       console.error("Permission request failed", e);
       setIsRequesting(false);

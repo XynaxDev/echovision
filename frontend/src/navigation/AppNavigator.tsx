@@ -12,6 +12,9 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import { ActivityIndicator, View } from "react-native";
+import { Camera } from "expo-camera";
+import { Audio } from "expo-av";
+import * as Location from "expo-location";
 
 import { useAppTheme } from "../context/ThemeContext";
 import { AuthSelectionScreen } from "../screens/AuthSelectionScreen";
@@ -53,10 +56,29 @@ export function AppNavigator(): React.JSX.Element {
   const [initializing, setInitializing] = React.useState(true);
   const [user, setUser] = React.useState<FirebaseAuthTypes.User | null>(null);
 
+  const [hasPermissions, setHasPermissions] = React.useState(true);
+
   React.useEffect(() => {
-    const subscriber = auth().onAuthStateChanged((userState) => {
+    const checkInit = async (userState: FirebaseAuthTypes.User | null) => {
+      try {
+        const cam = await Camera.getCameraPermissionsAsync();
+        const mic = await Audio.getPermissionsAsync();
+        const loc = await Location.getForegroundPermissionsAsync();
+        
+        if (cam.status !== 'granted' || mic.status !== 'granted' || loc.status !== 'granted') {
+          setHasPermissions(false);
+        } else {
+          setHasPermissions(true);
+        }
+      } catch (e) {
+        setHasPermissions(false);
+      }
       setUser(userState);
       if (initializing) setInitializing(false);
+    };
+
+    const subscriber = auth().onAuthStateChanged((userState) => {
+      checkInit(userState);
     });
     return subscriber; // unsubscribe on unmount
   }, [initializing]);
@@ -71,7 +93,7 @@ export function AppNavigator(): React.JSX.Element {
 
   return (
     <Stack.Navigator
-      initialRouteName={user ? "Dashboard" : "AuthSelection"}
+      initialRouteName={!hasPermissions ? "Onboarding" : user ? "Dashboard" : "AuthSelection"}
       screenOptions={{
         headerStyle: {
           backgroundColor: colors.background,
