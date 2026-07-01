@@ -25,6 +25,9 @@ import {
   View,
   Image,
 } from "react-native";
+import { Camera } from "expo-camera";
+import { Audio } from "expo-av";
+import * as Location from "expo-location";
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -122,9 +125,9 @@ export function AuthScreen({ navigation }: Props): React.JSX.Element {
       await verifyPhoneAuth(name.trim(), `+91${phone}`);
 
       // Check permissions
-      const cam = await require('expo-camera').Camera.getCameraPermissionsAsync();
-      const mic = await require('expo-av').Audio.getPermissionsAsync();
-      const loc = await require('expo-location').Location.getForegroundPermissionsAsync();
+      const cam = await Camera.getCameraPermissionsAsync();
+      const mic = await Audio.getPermissionsAsync();
+      const loc = await Location.getForegroundPermissionsAsync();
       
       triggerHaptic("success");
       if (cam.status !== 'granted' || mic.status !== 'granted' || loc.status !== 'granted') {
