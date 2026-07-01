@@ -216,7 +216,10 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
       if (!isVoiceActive) {
         // Expo Speech uses the device's local TTS which is typically female, so we use female grammar here.
         const preAudioTxt = language === "hindi" ? "मैं विश्लेषण कर रही हूँ, थोड़ा समय दें।" : "I'm analyzing, please give me a moment.";
-        Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+        Speech.speak(preAudioTxt, { 
+          language: language === "hindi" ? "hi-IN" : "en-US",
+          rate: language === "hindi" ? 0.85 : 1.0 
+        });
       } else {
         // Strictly stop any lingering local speech if Voice AI is active
         Speech.stop();
