@@ -246,7 +246,7 @@ async def scan_scene_with_nvidia(
     # Step 2: Translate if the user requested a non-English language
     if language.lower() != "english":
         lang_rules = {
-            "hindi": "CRITICAL: You are FORBIDDEN from using English words. Translate the text strictly into conversational Hindi using actual Devanagari script.",
+            "hindi": "CRITICAL: Translate the text STRICTLY into conversational Hindi using ONLY the Devanagari script. DO NOT use the English alphabet/Roman script under any circumstances. Translate or transliterate any English or technical words (like ALT -> ऑल्ट, CTRL -> कंट्रोल) into Devanagari script.",
             "hinglish": "CRITICAL: Translate the text strictly into Hinglish (Hindi written in English alphabet). Do NOT use Devanagari.",
         }
         lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
