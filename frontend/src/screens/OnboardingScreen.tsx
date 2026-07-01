@@ -51,7 +51,7 @@ export function OnboardingScreen({ navigation }: Props): React.JSX.Element {
       } else {
         navigation.replace("Auth");
       }
-    } catch (e, { rate: 0.85 }) {
+    } catch (e) {
       console.error("Permission request failed", e);
       setIsRequesting(false);
       Speech.speak("Permission request failed. Please try again.", { rate: 0.85 });
