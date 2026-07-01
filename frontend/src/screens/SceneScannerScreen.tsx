@@ -205,7 +205,7 @@ export function SceneScannerScreen({ navigation }: Props): React.JSX.Element {
     // ── PHASE 2: Photo taken successfully — process it ──
     try {
       triggerHaptic("heavy");
-      const isHindi = language === "hindi" || language === "hinglish";
+      const isHindi = language === "hindi";
       Speech.speak(isHindi ? "फोटो खींच ली गई है" : "Photo captured", { 
         rate: 0.85, 
         language: isHindi ? "hi-IN" : "en-US" 

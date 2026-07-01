@@ -64,7 +64,7 @@ async def vision_stream_endpoint(websocket: WebSocket):
                 await tts_queue.put(None)
 
         async def tts_worker():
-            lang_code = "hi-IN" if language.lower() in ["hindi", "hinglish"] else "en-IN"
+            lang_code = "en-IN" if language.lower() == "english" else "hi-IN"
             
             while True:
                 sentence = await tts_queue.get()
@@ -107,7 +107,7 @@ async def vision_stream_endpoint(websocket: WebSocket):
     summary="Describe a scene from an image",
     description=(
         "Accepts a base64-encoded image string, prompts NVIDIA Llama 3.2 Vision for "
-        "a descriptive scene summary in natural spoken Hindi/Hinglish "
+        "a descriptive scene summary in natural spoken Hindi or English "
         "(maximum 3 sentences), and returns the raw text string."
     ),
 )
@@ -115,7 +115,7 @@ async def scan_scene(
     body: ScanRequest,
     user: CurrentUser = Depends(get_current_user),
 ) -> ScanResponse:
-    """Analyze an image and produce a Hindi/Hinglish scene description.
+    """Analyze an image and produce a Hindi or English scene description.
 
     The image should be sent as a raw base64 string (no ``data:`` URI prefix).
     The NVIDIA Llama vision model will analyze the image and produce a concise,

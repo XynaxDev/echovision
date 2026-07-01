@@ -200,7 +200,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     else if (upperCommand.includes("TALKBACK_ON")) AsyncStorage.setItem("@setting_talkback", "true");
     
     else if (upperCommand.includes("CHANGE_LANGUAGE")) {
-      const newLang = upperCommand.includes("ENGLISH") ? "english" : upperCommand.includes("HINGLISH") ? "hinglish" : "hindi";
+      const newLang = upperCommand.includes("ENGLISH") ? "english" : "hindi";
       await setLanguage(newLang);
       
       // Quietly restart websocket to pass new language to backend
@@ -284,10 +284,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
                 
                 // Play confirmation immediately via frontend TTS
                 playLocalAnnouncement(
-                    language === "hindi" || language === "hinglish" 
+                    language === "hindi"
                         ? `मैंने SOS चालू कर दिया है। ${contact.name} को कॉल किया जा रहा है। कृपया मदद की प्रतीक्षा करें।` 
                         : `I have triggered the SOS. Calling ${contact.name}. Please wait for help.`,
-                    language === "hindi" || language === "hinglish" ? "hi-IN" : "en-US",
+                    language === "hindi" ? "hi-IN" : "en-US",
                     () => {
                         executeSOS();
                     }
@@ -299,8 +299,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
                 navigateDelegateRef.current("GO_BACK");
                 if (!fromVoice) {
                     playLocalAnnouncement(
-                        language === "hindi" || language === "hinglish" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
-                        language === "hindi" || language === "hinglish" ? "hi-IN" : "en-US"
+                        language === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
+                        language === "hindi" ? "hi-IN" : "en-US"
                     );
                 }
             }
@@ -317,8 +317,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         } else {
             contextualCommandsRef.current = {};
             playLocalAnnouncement(
-                language === "hindi" || language === "hinglish" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
-                language === "hindi" || language === "hinglish" ? "hi-IN" : "en-US"
+                language === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
+                language === "hindi" ? "hi-IN" : "en-US"
             );
         }
      }

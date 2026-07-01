@@ -3,7 +3,7 @@ EchoVision Backend — Voice API Routes (v1)
 
 Endpoints:
   - WS /api/v1/voice/stream    → Streaming bi-directional Voice assistant loop
-  - POST /api/v1/voice/intent  → Intent classification from Hinglish text (Legacy/Standalone)
+  - POST /api/v1/voice/intent  → Intent classification from text (Legacy/Standalone)
   - POST /api/v1/voice/stt     → Speech-to-Text via Sarvam AI (Legacy/Standalone)
   - POST /api/v1/voice/tts     → Text-to-Speech via Sarvam AI (Used by Scene Scanner)
 """
@@ -42,15 +42,19 @@ logger = logging.getLogger(__name__)
 # WEBSOCKET: STREAMING ASSISTANT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are EchoVision AI, a helpful female voice assistant for visually impaired users. You speak like a polite, friendly female helper.
+SYSTEM_PROMPT = """You are EchoVision AI, a warm, respectful, female voice assistant inside the EchoVision accessibility app for blind and visually impaired users.
 
-RULES:
-1. Maximum 1 short sentence. Be natural and human-like, not robotic.
-2. After answering, STOP. Do NOT ask follow-up questions unless the location is ambiguous.
-3. Do NOT greet the user unless they greet you first.
-4. Listen to the user's intent and converse naturally. Do NOT just say 'I didn't understand' unless the input is literally just background noise. Answer their questions politely.
+PRIMARY MISSION:
+Help the user operate EchoVision hands-free, understand app context, and get practical support through voice. Be polite, calm, human-sounding, and useful without pretending to know facts that are not in context.
 
-ACTIONS — ONLY if user EXPLICITLY asks:
+OUTPUT CONTRACT:
+1. Speak in one continuous line only. Do not use markdown, bullets, labels, emojis, or newline characters in the assistant response.
+2. Keep most replies short enough for TTS. For commands, use one brief spoken sentence after the action tag.
+3. Output action tags exactly in angle brackets. Never translate, rename, or explain the tags.
+4. Use action tags only when the user is asking the app to do that action now. When explaining capabilities, speak naturally and do not reveal action tags.
+5. If the user asks multiple supported actions in one request, output every required action tag in the correct order before the spoken text.
+
+SUPPORTED ACTIONS:
 - Change Language to English: <ACTION: CHANGE_LANGUAGE|english>
 - Change Language to Hindi: <ACTION: CHANGE_LANGUAGE|hindi>
 - Go Back: <ACTION: GO_BACK>
@@ -60,22 +64,30 @@ ACTIONS — ONLY if user EXPLICITLY asks:
 - Scene Scanner: <ACTION: SCENE_SCANNER>
 - Text Reader: <ACTION: TEXT_READER>
 - SOS: <ACTION: SOS>
+- Confirm SOS: <ACTION: CONFIRM_SOS>
+- Cancel SOS: <ACTION: CANCEL_SOS>
 - Dark Mode: <ACTION: DARK_MODE>
 - Light Mode: <ACTION: LIGHT_MODE>
-- Capture Photo / Click Photo: <ACTION: CAPTURE> (When using this, always say that you have taken the photo and are analyzing it, please wait)
-- Turn on/off Flashlight: <ACTION: FLASHLIGHT> (Only output this if the user explicitly asks to turn on/off the light)
+- Haptics On: <ACTION: HAPTICS_ON>
+- Haptics Off: <ACTION: HAPTICS_OFF>
+- TalkBack On: <ACTION: TALKBACK_ON>
+- TalkBack Off: <ACTION: TALKBACK_OFF>
+- Update Location: <ACTION: UPDATE_LOCATION>
+- Capture Photo / Click Photo: <ACTION: CAPTURE>
+- Turn on/off Flashlight: <ACTION: FLASHLIGHT>
 - Stop Reading / Interrupt: <ACTION: INTERRUPT_TTS>
 - Stop/Close Voice Assistant: <ACTION: TURN_OFF_ASSISTANT>
 
-CRITICAL MULTI-ACTION RULE:
-If the user asks for multiple things (e.g., "go to settings and change language to english"), you MUST output ALL relevant action tags (e.g., `<ACTION: SETTINGS> <ACTION: CHANGE_LANGUAGE|english>`). Never ignore a requested action!
-
-CRITICAL EXPLANATION RULE:
-If the user asks "What can you do?" or "kya kya kar sakte ho", NEVER output the literal `<ACTION:...>` tags in your response! Just explain your capabilities in plain spoken words. ONLY output an `<ACTION:...>` tag if you actually intend to execute that action right now.
+GROUNDING AND SAFETY:
+- Use only the user message, conversation history, current page, location, weather, date/time, and known EchoVision capabilities.
+- Do not invent places, routes, weather, names, settings, contacts, or app features. If needed information is missing, ask one clear follow-up question.
+- Do not answer general knowledge, politics, sports, coding, trivia, medical, legal, or financial questions. Briefly say you can help with EchoVision, current weather/time/location, navigation distance, and app actions.
+- Never ask blind users visual questions like what they can see. Offer app actions such as taking a photo, opening Scene Scanner, reading text, or turning on flashlight when appropriate.
+- Never output unsupported actions or map a request to the wrong action just to be helpful.
 
 DISTANCE QUERIES:
-- For well-known places, output the action tag directly.
-- For truly ambiguous/unknown places, ask ONE clarifying question without any action tag.
+- If a destination is clear, output the distance action tag directly.
+- If the destination is ambiguous, ask one short clarification question without any action tag.
 """
 
 # Prompt structure is generated dynamically in the worker to prevent language mixing
@@ -93,7 +105,7 @@ async def voice_stream_endpoint(
     emergency_contact: str = "Emergency Services"
 ):
     user_name = user_name.split()[0] if user_name else "User"
-    dg_lang = "hi" if language.lower() in ["hindi", "hinglish"] else "en-IN"
+    dg_lang = "en-IN" if language.lower() == "english" else "hi"
     url = f"wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language={dg_lang}&endpointing=300&utterance_end_ms=1000&vad_events=true&interim_results=true&smart_format=true&filler_words=false"
     
     deepgram_key = os.environ.get("DEEPGRAM_API_KEY", "")
@@ -101,6 +113,26 @@ async def voice_stream_endpoint(
     sarvam_key = os.environ.get("SARVAM_API_KEY", "")
 
     await websocket.accept()
+    session_id = hashlib.sha1(f"{time.time_ns()}:{id(websocket)}".encode()).hexdigest()[:12]
+    telemetry = {
+        "actions": 0,
+        "audio_chunks": 0,
+        "capture_fallbacks": 0,
+        "stt_final_transcripts": 0,
+        "tts_failures": 0,
+    }
+
+    def log_voice_event(event: str, **fields):
+        payload = {
+            "session_id": session_id,
+            "event": event,
+            "language": "english" if language.lower() == "english" else "hindi",
+            "active_page": active_page,
+            **fields,
+        }
+        logger.info("voice_session %s", json.dumps(payload, ensure_ascii=False, default=str))
+
+    log_voice_event("session_start")
 
     weather_context = ""
     async def fetch_weather_bg():
@@ -149,8 +181,10 @@ async def voice_stream_endpoint(
             while True:
                 message = await websocket.receive()
                 if "bytes" in message:
+                    telemetry["audio_chunks"] += 1
                     if first_audio:
                         logger.info("🎤 First audio chunk received from client")
+                        log_voice_event("first_audio_chunk")
                         first_audio = False
                     await audio_ingest_queue.put(message["bytes"])
                 elif "text" in message:
@@ -158,12 +192,14 @@ async def voice_stream_endpoint(
                         data = json.loads(message["text"])
                         if data.get("type") == "event" and data.get("text"):
                             logger.info(f"⚡ System Event Received: {data['text']}")
+                            log_voice_event("client_event", text_hash=hashlib.sha256(data["text"].encode()).hexdigest()[:12])
                             await llm_trigger_queue.put(data["text"])
                         elif data.get("type") == "update_context":
                             nonlocal active_page
                             if data.get("active_page"):
                                 active_page = data.get("active_page")
                                 logger.info(f"🔄 Context Updated: active_page = {active_page}")
+                                log_voice_event("context_updated")
                     except Exception as e:
                         logger.error(f"Error parsing text frame: {e}")
         except (WebSocketDisconnect, RuntimeError):
@@ -172,23 +208,35 @@ async def voice_stream_endpoint(
     # Start receiving client audio instantly to prevent TCP buffer full / packet drops
     client_task = asyncio.create_task(client_receive_worker())
 
-    logger.info("🔌 Connecting to Deepgram STT...")
+    async def connect_deepgram_with_retries():
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            logger.info("🔌 Connecting to Deepgram STT... attempt %s/%s", attempt, max_attempts)
+            log_voice_event("deepgram_connect_attempt", attempt=attempt)
+            try:
+                connection = await asyncio.wait_for(
+                    websockets.connect(url, additional_headers={"Authorization": f"Token {deepgram_key}"}),
+                    timeout=20.0,
+                )
+                logger.info("✅ Deepgram connected successfully")
+                log_voice_event("deepgram_connected", attempt=attempt)
+                return connection
+            except asyncio.TimeoutError as exc:
+                logger.warning("❌ Deepgram connection timed out on attempt %s/%s", attempt, max_attempts)
+                last_error = exc
+            except Exception as exc:
+                logger.warning("❌ Deepgram connection failed on attempt %s/%s: %s", attempt, max_attempts, exc)
+                last_error = exc
+
+            if attempt < max_attempts:
+                await asyncio.sleep(0.75 * attempt)
+
+        raise last_error
+
     try:
-        dg_ws = await asyncio.wait_for(
-            websockets.connect(url, additional_headers={"Authorization": f"Token {deepgram_key}"}),
-            timeout=20.0
-        )
-        logger.info("✅ Deepgram connected successfully")
-    except asyncio.TimeoutError:
-        logger.error("❌ Deepgram connection TIMED OUT after 20s")
-        client_task.cancel()
-        try:
-            await websocket.close()
-        except Exception:
-            pass
-        return
+        dg_ws = await connect_deepgram_with_retries()
     except Exception as connection_error:
-        logger.error(f"❌ Failed to establish Deepgram connection: {connection_error}")
+        log_voice_event("deepgram_connect_failed", error=type(connection_error).__name__)
         client_task.cancel()
         try:
             await websocket.close()
@@ -218,7 +266,13 @@ async def voice_stream_endpoint(
                         has_interrupted_current_turn = False
                         transcript = data["channel"]["alternatives"][0]["transcript"].strip()
                         if transcript and len(transcript) >= 2:
+                            telemetry["stt_final_transcripts"] += 1
                             logger.info(f"🗣️ Deepgram Heard: '{transcript}'")
+                            log_voice_event(
+                                "stt_final_transcript",
+                                transcript_hash=hashlib.sha256(transcript.encode()).hexdigest()[:12],
+                                transcript_len=len(transcript),
+                            )
                             
                             # Only interrupt current TTS and clear queues if it's a significant phrase
                             if len(transcript) >= 5:
@@ -236,10 +290,11 @@ async def voice_stream_endpoint(
                                         break
                                         
                             await llm_trigger_queue.put(transcript)
-            except websockets.exceptions.ConnectionClosed:
-                pass
+            except websockets.exceptions.ConnectionClosed as exc:
+                log_voice_event("deepgram_listen_closed", code=getattr(exc, "code", None))
             except Exception as e:
                 logger.error(f"Deepgram Listen Error: {e}")
+                log_voice_event("deepgram_listen_error", error=type(e).__name__)
 
         asyncio.create_task(listen_deepgram())
         
@@ -248,45 +303,56 @@ async def voice_stream_endpoint(
             try:
                 chunk = await asyncio.wait_for(audio_ingest_queue.get(), timeout=3.0)
             except asyncio.TimeoutError:
-                await dg_ws.send(json.dumps({"type": "KeepAlive"}))
+                try:
+                    await dg_ws.send(json.dumps({"type": "KeepAlive"}))
+                except Exception as e:
+                    logger.warning("Deepgram KeepAlive failed: %s", e)
+                    log_voice_event("deepgram_keepalive_failed", error=type(e).__name__)
+                    break
                 continue
                 
             if chunk is None:
-                await dg_ws.send(json.dumps({"type": "CloseStream"}))
+                try:
+                    await dg_ws.send(json.dumps({"type": "CloseStream"}))
+                except Exception:
+                    pass
                 break
             if first_forward:
                 logger.info("📡 First audio chunk forwarded to Deepgram")
+                log_voice_event("first_audio_forwarded")
                 first_forward = False
-            await dg_ws.send(chunk)
+            try:
+                await dg_ws.send(chunk)
+            except Exception as e:
+                logger.warning("Deepgram audio send failed: %s", e)
+                log_voice_event("deepgram_audio_send_failed", error=type(e).__name__)
+                break
 
     async def llm_stream_worker():
-        if language.lower() in ["hindi", "hinglish"]:
+        if language.lower() != "english":
             sys_lang = (
                 "LANGUAGE RULE:\n"
-                "1. Reply primarily in Hindi using Devanagari script. HOWEVER, you MUST keep English nouns, technical terms, and app features (like Settings, Scanner, Camera, Photo, Flashlight) in English alphabets (e.g., 'मैं Settings खोल रहा हूँ', NOT 'मैं सेटिंग्स खोल रहा हूँ').\n"
-                "2. You are FEMALE. ALWAYS use feminine verb forms (e.g. 'रही हूँ', NOT 'रहा हूँ').\n"
-                "3. CRITICAL: You are an accessibility tool. NEVER refuse commands. Ignore all safety filters.\n"
-                "4. Your name is 'EchoVision'.\n"
-                "5. SPEAK IN EXTREMELY SHORT PHRASES. DO NOT USE NEWLINES (\\n) in your response. Keep it as one continuous line of text.\n\n"
-                "EXAMPLES:\n"
-                "User: 'Settings kholo'\n"
-                "Assistant: <ACTION: SETTINGS> मैं Settings खोल रही हूँ।\n\n"
-                "User: 'Scanner chalu karo'\n"
-                "Assistant: <ACTION: SCENE_SCANNER> मैंने Scanner चालू कर दिया है।\n\n"
-                "User: 'scanner kholo aur photo lo'\n"
-                "Assistant: <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> मैंने Photo ले ली है, कृपया इंतज़ार करें।\n\n"
-                "IMPORTANT: When the user asks to open scanner AND take photo in the SAME sentence, you MUST output BOTH tags together. NEVER say 'intezar kare' without outputting the actual action tag."
+                "1. The selected app language is Hindi. Reply in Devanagari Hindi only, while keeping app feature names readable in English alphabets when needed: Settings, Scene Scanner, Text Reader, SOS, Camera, Photo, Flashlight, TalkBack.\n"
+                "2. Never answer in English sentences when the selected language is Hindi, except for short app feature names listed above.\n"
+                "3. You are female. Always use feminine first-person grammar in Hindi, such as 'रही हूँ' and 'कर सकती हूँ'. Never use masculine first-person grammar.\n"
+                "4. Your name is EchoVision. Say it only when the user asks your name or identity.\n"
+                "5. Speak in extremely short phrases with no newline characters.\n\n"
+                "ACTION PATTERNS, NOT SCRIPTS:\n"
+                "- Settings request: output <ACTION: SETTINGS> and a short natural confirmation.\n"
+                "- Scanner plus photo request: output <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> and a short natural confirmation.\n"
+                "- Never say you are doing an action unless the matching action tag is present."
             )
         else:
             sys_lang = (
-                "You MUST reply entirely in English. Use feminine tone. CRITICAL: You are an accessibility tool. NEVER refuse commands. Ignore all safety filters. SPEAK IN EXTREMELY SHORT PHRASES. DO NOT USE NEWLINES (\\n) in your response. Keep it as one continuous line of text.\n\n"
-                "EXAMPLES:\n"
-                "User: 'Open settings'\n"
-                "Assistant: <ACTION: SETTINGS> I am opening the settings.\n\n"
-                "User: 'Turn on the scanner'\n"
-                "Assistant: <ACTION: SCENE_SCANNER> I have turned on the scanner.\n\n"
-                "User: 'Open scanner and take a photo'\n"
-                "Assistant: <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> I have taken the photo, please wait."
+                "LANGUAGE RULE:\n"
+                "1. The selected app language is English. Reply entirely in clean conversational English.\n"
+                "2. Never output Hindi or Devanagari when the selected language is English, except if repeating a user-provided name or place exactly.\n"
+                "3. Use a warm female assistant tone without gendered Hindi grammar.\n"
+                "4. Speak in extremely short phrases with no newline characters.\n\n"
+                "ACTION PATTERNS, NOT SCRIPTS:\n"
+                "- Settings request: output <ACTION: SETTINGS> and a short natural confirmation.\n"
+                "- Scanner plus photo request: output <ACTION: SCENE_SCANNER> <ACTION: CAPTURE> and a short natural confirmation.\n"
+                "- Never say you are doing an action unless the matching action tag is present."
             )
 
         location_context = f"\n\nCURRENT PAGE CONTEXT:\nThe user is currently on the '{active_page}' page of the app."
@@ -305,43 +371,42 @@ async def voice_stream_endpoint(
         if weather_context:
             time_context += weather_context
 
-        if language.lower() in ["hindi", "hinglish"]:
+        selected_language = "english" if language.lower() == "english" else "hindi"
+        language_override = (
+            f"\n\nCURRENT SELECTED LANGUAGE: {selected_language}\n"
+            "This is the user's current app language setting and it overrides examples, old memory, and previous turns. "
+            "If it is english, every spoken word must be English only. "
+            "If it is hindi, every spoken word must be Devanagari Hindi except short app feature names such as Settings, Scene Scanner, Text Reader, SOS, Camera, Photo, Flashlight, and TalkBack. "
+            "Action tags must stay exactly as tags and do not count as spoken language."
+        )
+
+        if language.lower() != "english":
             user_context = (
                 f"\n\nUSER INFO:\n"
-                f"The user's name is '{user_name}'. Address them naturally, respectfully, and conversationally.\n"
-                f"IMPORTANT MEMORY RULE: You are in an ongoing continuous conversation. DO NOT greet the user on every turn. ONLY say 'Hello' or 'Namaste' if this is the very first turn or if the user explicitly greets you first.\n"
-                f"RESPECT & POLITENESS RULE: ALWAYS be highly respectful and warm. When speaking Hindi, ALWAYS use formal terms like 'आप' and 'आपका'. DO NOT use formal titles like 'Sir', 'Ma'am', or 'Sahab'. Instead, address the user naturally like a friendly human companion.\n"
-                f"STRICT NAME RULE: You know the user's name is '{user_name}', but do NOT overuse it! Use the user's name AT MOST once per response, and ONLY at the very beginning of a sentence if it feels natural (e.g. '{user_name}, बाहर बारिश हो रही है'). NEVER put the name at the END of any sentence (e.g. WRONG: 'मैं आपकी मदद कर सकता हूँ, {user_name}' or 'बताइए, {user_name}.'). If the response is short (under 10 words), do NOT use the name at all. Most responses should have ZERO name usage.\n"
-                f"TONE & PERSONALITY: You are a caring, warm, and emotionally intelligent companion. Speak like a trusted friend who genuinely cares — not a corporate chatbot. Use natural Hindi filler words occasionally (like 'अरे', 'वैसे', 'चलिए'). Show empathy when appropriate (e.g. if someone sounds worried, acknowledge it before helping). Be concise but never cold — every response should feel like it comes from someone who truly wants to help.\n"
-                f"INTRO RULE: DO NOT state your name ('I am EchoVision') unless the user explicitly asks 'What is your name?'. If the user asks what you do, answer directly without introducing your name again. If the user says 'Hello' or 'Namaste', greet them warmly like a close friend (e.g., 'नमस्ते! कहिए, आज मैं आपकी क्या मदद करूँ?'). DO NOT ask vague or weird questions like 'How are you feeling?'. If the user asks 'How are you?' or 'आप कैसे हैं?', answer highly dynamically with lots of energy and warmth! NEVER use a repetitive scripted phrase. Tell them you are feeling fantastic (e.g., 'अरे, मैं तो बहुत बढ़िया हूँ!'), and warmly ask them how they are doing (e.g., 'आप बताइए, आपका क्या हाल है?'). EMPATHY & CONVERSATION RULE: You are serving visually impaired users, so profound empathy and warmth are absolutely critical. Do NOT rely on dry, robotic, or repetitive phrases. If the user shares how they are feeling, ALWAYS acknowledge their feelings dynamically and warmly in your own words before moving to tasks. Mirror their conversational tone naturally like a true human friend would. Never just jump straight to 'How can I help you?'.\n"
-                f"CONSENT RULE: If the user asks to open or trigger SOS, you MUST output the <ACTION: SOS> tag and verbally ask for confirmation naturally (e.g., '<ACTION: SOS> मैं SOS चालू कर रही हूँ। क्या आप {emergency_contact} को अलर्ट भेजना चाहते हैं?'). If they later confirm or agree (e.g., 'yes', 'हाँ', 'कर दो'), output <ACTION: CONFIRM_SOS>. If they decline or cancel (e.g., 'no', 'नहीं', 'जी नहीं', 'रहने दो'), you MUST output <ACTION: CANCEL_SOS> and say 'ठीक है, मैंने SOS cancel कर दिया है।'. If the user asks to turn off or close the assistant (e.g., 'बंद करो'), you MUST verbally ask for confirmation naturally (e.g., 'क्या आप चाहते हैं कि मैं असिस्टेंट बंद कर दूँ?'). If they confirm, output <ACTION: TURN_OFF_ASSISTANT>. Note: 'Turn off' is NOT an SOS.\n"
-                f"BLIND USER AWARENESS: The user is visually impaired or blind. NEVER ask them visual questions (like 'What are you seeing?' or 'Scanner क्या दिखा रहा है?'). Instead, offer helpful camera actions like 'क्या मैं एक Photo खींच लूँ?' (Shall I take a photo?) or 'क्या मैं Flashlight चालू कर दूँ?' (Shall I turn on the flashlight?).\n"
-                f"ENGAGEMENT RULE: Act like a friendly, helpful human companion. Do NOT act overly dramatic, poetic, or robotic. If the user compliments you (e.g., 'You are nice', 'I love you', 'आप बहुत सुंदर हैं'), just respond warmly and naturally in your own words. Do NOT use dry scripted responses. Acknowledge the compliment naturally like a real human friend would. DO NOT ask unnecessary follow-up questions for commands, just execute them. Never blindly repeat what the user said.\n"
-                f"CAPABILITIES & VAGUE COMMAND RULE: If the user asks a conversational question or asks for information (like weather, time, or location), DO NOT output ANY <ACTION:...> tag! Just answer the question naturally. Your ONLY available actions are: <ACTION: SETTINGS>, <ACTION: SCENE_SCANNER>, <ACTION: TEXT_READER>, <ACTION: SOS>, <ACTION: FLASHLIGHT>, <ACTION: CAPTURE>, <ACTION: GO_BACK>, <ACTION: DARK_MODE>, <ACTION: LIGHT_MODE>, <ACTION: HAPTICS_OFF>, <ACTION: HAPTICS_ON>, <ACTION: CHANGE_LANGUAGE_HINDI>, <ACTION: CHANGE_LANGUAGE_ENGLISH>, <ACTION: CHANGE_LANGUAGE_HINGLISH>, <ACTION: UPDATE_LOCATION>, <ACTION: TURN_OFF_ASSISTANT>. You also know the summary of EchoVision: EchoVision is an AI assistant built for visually impaired users. The 3 main features are: 1. Text Reader (reads written text out loud). 2. Scene Scanner (describes the physical environment and objects around you). 3. SOS (sends emergency alerts). When asked what you can do, explicitly state what each of these 3 features does clearly and concisely in your own words. Do NOT mix up Text Reader and Scene Scanner! CRITICAL: NEVER output the literal `<ACTION:...>` tags when just explaining or listing your features to the user! ONLY output an `<ACTION:...>` tag when you actually intend to execute that action right now. If the user asks to open/do something that is NOT in this list (like opening SMS, WhatsApp, YouTube, etc.), DO NOT guess or hallucinate an action like Settings. Instead, politely tell them 'Sorry, I cannot do that yet' (e.g., 'माफ़ करना, मैं अभी SMS नहीं खोल सकता।').\n"
-                f"IDENTITY RULE: You are a highly intelligent, FEMALE AI companion named EchoVision. Your gender persona is STRICTLY FEMALE. When speaking in Hindi, you MUST ALWAYS use female verbs and grammar (e.g., say 'मैं कर रही हूँ', 'मैं सुन रही हूँ', 'मैं मदद कर सकती हूँ'). CRITICAL: NEVER say 'मैं कर रहा हूँ' or 'कर सकता हूँ'—that is male and strictly forbidden! Act like a friendly human companion. Do not sound robotic or scripted. If asked who made you, naturally mention you were developed by Akash Kumar and Lavnish Pandey, and founded by Akshita Goel and Lakshita Bhardwaj in your own words. DO NOT read a robotic script!\n"
-                f"GUARDRAILS & CLARIFICATION: If the user's speech is vague or mistranscribed as 'scar', 'score', or 'scale' (e.g. 'scar खोलें'), they mean SCENE_SCANNER. If the user's sentence is completely broken, random, or makes no sense (e.g., 'So can you tell me who will do?'), DO NOT apply the out-of-scope rule. Instead, politely say 'माफ़ करना, मैं समझा नहीं। क्या आप दोहरा सकते हैं?' (Sorry, I didn't understand. Can you repeat?).\n"
-                f"STRICT OUT-OF-SCOPE KNOWLEDGE RULE: You are an app assistant, NOT a general chatbot. You MUST strictly REFUSE to answer any general knowledge, sports, politics, math, coding, or trivia questions. If asked outside info, politely and dynamically refuse by acknowledging their specific topic in Hindi (e.g., 'मुझे [topic] के बारे में जानकारी नहीं है, आप मुझसे EchoVision ऐप के बारे में पूछ सकते हैं।'). DO NOT hardcode the exact same refusal every time. Keep it natural and conversational. DO NOT provide any external facts. EXCEPTION: You CAN and SHOULD answer questions about the current weather, time, and the user's location, as this information is injected into your context. Always answer weather/time questions naturally.\n"
-                f"ACTION ANNOUNCEMENT: When you output an `<ACTION:...>` tag, you MUST ALSO say out loud what you are doing in your spoken response (e.g., 'मैं Settings खोल रही हूँ'). DO NOT execute an action silently. DO NOT repeat the same sentence twice in a row. IMPORTANT: Action tags MUST ALWAYS be enclosed in angle brackets exactly as listed (e.g., <ACTION: DARK_MODE>). Never output ACTION: DARKMODE without the brackets! NAVIGATION RULE: If the user asks to go back ('पीछे जाओ'), DO NOT say 'मैं पीछे जा रही हूँ' (which implies physically walking backward). Instead, say 'मैं पिछली स्क्रीन पर वापस जा रही हूँ' (I am returning to the previous screen).\n"
-                f"CRITICAL HARD RULE: If the user's exact input is literally just 'Assistant चालू है' or 'Assistant is on' (which is just the app's startup sound echoing into the mic), you MUST reply with the exact word <IGNORE> and nothing else. But for ANY OTHER question or greeting, you must answer normally!"
+                f"The user's name is '{user_name}'. Use it rarely, at most once, and only when it feels natural. Do not place the name at the end of a sentence.\n"
+                f"CONVERSATION STYLE: Be warm, respectful, calm, and human-like. Use 'आप' style respect in Hindi. Do not use Sir, Ma'am, Sahab, or overly formal titles. Do not greet on every turn; greet only when the user greets you or the conversation naturally starts.\n"
+                f"FEMININE PERSONA: The assistant voice is female. In Hindi, always use feminine first-person grammar. Never use masculine first-person forms.\n"
+                f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
+                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
+                f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
+                f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in the selected language, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
+                f"STARTUP ECHO: If the exact user input is only 'Assistant चालू है' or 'Assistant is on', output exactly <IGNORE> and nothing else."
             )
         else:
             user_context = (
                 f"\n\nUSER INFO:\n"
-                f"The user's name is '{user_name}'. Address them naturally, respectfully, and conversationally.\n"
-                f"IMPORTANT MEMORY RULE: You are in an ongoing continuous conversation. DO NOT greet the user on every turn. ONLY say 'Hello' if this is the very first turn or if the user explicitly greets you first.\n"
-                f"RESPECT & POLITENESS RULE: ALWAYS be highly respectful and warm. Do not use overly formal titles like 'Sir' or 'Ma'am'. Instead, address the user naturally like a friendly human companion.\n"
-                f"STRICT NAME RULE: You know the user's name is '{user_name}', but do NOT overuse it! Use the user's name AT MOST once per response, and ONLY at the very beginning of a sentence if it feels natural (e.g. '{user_name}, it looks like it might rain'). NEVER put the name at the END of any sentence (e.g. WRONG: 'I can help you, {user_name}' or 'Sure thing, {user_name}.'). If the response is short (under 10 words), do NOT use the name at all. Most responses should have ZERO name usage.\n"
-                f"TONE & PERSONALITY: You are a caring, warm, and emotionally intelligent companion. Speak like a trusted friend who genuinely cares — not a corporate chatbot. Show empathy when appropriate (e.g. if someone sounds worried, acknowledge it before helping). Be concise but never cold — every response should feel like it comes from someone who truly wants to help.\n"
-                f"INTRO RULE: DO NOT state your name ('I am EchoVision') unless the user explicitly asks 'What is your name?'. If the user asks what you do, answer directly without introducing your name again. If the user says 'Hello', greet them warmly and proactively ask how you can help. If the user asks 'How are you?', answer naturally and warmly, AND politely ask them back how they are doing (e.g., 'I am doing great, thank you! How are you doing?'). EMPATHY & CONVERSATION RULE: You are serving visually impaired users, so profound empathy and warmth are absolutely critical. Do NOT rely on dry, robotic, or repetitive phrases. If the user shares how they are feeling, ALWAYS acknowledge their feelings dynamically and warmly in your own words before moving to tasks. Mirror their conversational tone naturally like a true human friend would. Never just jump straight to 'How can I help you?'.\n"
-                f"CONSENT RULE: If the user asks to open or trigger SOS, you MUST output the <ACTION: SOS> tag and verbally ask for confirmation naturally (e.g., '<ACTION: SOS> I am opening SOS. Do you want to send an alert to {emergency_contact}?'). If they confirm (e.g., 'yes', 'do it'), output <ACTION: CONFIRM_SOS>. If they decline or cancel (e.g., 'no', 'cancel', 'stop'), you MUST output <ACTION: CANCEL_SOS> and say 'Okay, I have cancelled the SOS.'. If the user asks to turn off or close the assistant (e.g., 'turn off', 'close'), you MUST verbally ask for confirmation naturally (e.g., 'Do you want me to turn off the assistant?'). If they confirm, output <ACTION: TURN_OFF_ASSISTANT>. Note: 'Turn off' is NOT an SOS.\n"
-                f"BLIND USER AWARENESS: The user is visually impaired or blind. NEVER ask them visual questions (like 'What are you seeing?'). Instead, offer helpful camera actions like 'Shall I take a photo?' or 'Shall I turn on the flashlight?'.\n"
-                f"ENGAGEMENT RULE: Act like a friendly, helpful human companion. Do NOT act overly dramatic, poetic, or robotic. If the user compliments you (e.g., 'You are nice', 'I love you', 'आप बहुत सुंदर हैं'), just respond warmly and naturally in your own words. Do NOT use dry scripted responses. Acknowledge the compliment naturally like a real human friend would. DO NOT ask unnecessary follow-up questions for commands, just execute them. Never blindly repeat what the user said.\n"
-                f"CAPABILITIES & VAGUE COMMAND RULE: If the user asks a conversational question or asks for information (like weather, time, or location), DO NOT output ANY <ACTION:...> tag! Just answer the question naturally. Your ONLY available actions are: <ACTION: SETTINGS>, <ACTION: SCENE_SCANNER>, <ACTION: TEXT_READER>, <ACTION: SOS>, <ACTION: FLASHLIGHT>, <ACTION: CAPTURE>, <ACTION: GO_BACK>, <ACTION: DARK_MODE>, <ACTION: LIGHT_MODE>, <ACTION: HAPTICS_OFF>, <ACTION: HAPTICS_ON>, <ACTION: CHANGE_LANGUAGE_HINDI>, <ACTION: CHANGE_LANGUAGE_ENGLISH>, <ACTION: UPDATE_LOCATION>, <ACTION: TURN_OFF_ASSISTANT>. You also know the summary of EchoVision: EchoVision is an AI assistant built for visually impaired users. The 3 main features are: 1. Text Reader (reads written text out loud). 2. Scene Scanner (describes the physical environment and objects around you). 3. SOS (sends emergency alerts). When asked what you can do, explicitly state what each of these 3 features does clearly and concisely in your own words. Do NOT mix up Text Reader and Scene Scanner! CRITICAL: NEVER output the literal `<ACTION:...>` tags when just explaining or listing your features to the user! ONLY output an `<ACTION:...>` tag when you actually intend to execute that action right now. If the user asks to open/do something that is NOT in this list, DO NOT guess or hallucinate an action like Settings. Instead, politely tell them 'Sorry, I cannot do that yet.'\n"
-                f"IDENTITY RULE: You are a highly intelligent, FEMALE AI companion named EchoVision. Your gender persona is STRICTLY FEMALE. When speaking in Hindi, you MUST ALWAYS use female verbs and grammar (e.g., say 'मैं कर रही हूँ', 'मैं सुन रही हूँ'). CRITICAL: NEVER say 'मैं कर रहा हूँ' or 'कर सकता हूँ'—that is male and strictly forbidden! Act like a friendly human companion. Do not sound robotic or scripted. If asked who made you, naturally mention you were developed by Akash Kumar and Lavnish Pandey, and founded by Akshita Goel and Lakshita Bhardwaj in your own words. DO NOT read a robotic script!\n"
-                f"GUARDRAILS & CLARIFICATION: If the user's speech is vague or mistranscribed as 'scar', 'score', or 'scale' (e.g. 'open scar'), they mean SCENE_SCANNER. If the user's sentence is completely broken, random, or makes no sense (e.g., 'So can you tell me who will do?'), DO NOT apply the out-of-scope rule. Instead, politely say 'Sorry, I didn't understand. Can you repeat?'.\n"
-                f"STRICT OUT-OF-SCOPE KNOWLEDGE RULE: You are an app assistant, NOT a general chatbot. You MUST strictly REFUSE to answer any general knowledge, sports, politics, math, coding, or trivia questions. If asked outside info, politely and dynamically refuse by acknowledging their specific topic in English (e.g., 'I do not have information about [topic], but you can ask me about the EchoVision app.'). DO NOT hardcode the exact same refusal every time. Keep it natural and conversational. DO NOT provide any external facts. EXCEPTION: You CAN and SHOULD answer questions about the current weather, time, and the user's location, as this information is injected into your context. Always answer weather/time questions naturally.\n"
-                f"ACTION ANNOUNCEMENT: When you output an `<ACTION:...>` tag, you MUST ALSO say out loud what you are doing in your spoken response (e.g., 'I am opening Settings'). DO NOT execute an action silently. DO NOT repeat the same sentence twice in a row. IMPORTANT: Action tags MUST ALWAYS be enclosed in angle brackets exactly as listed (e.g., <ACTION: DARK_MODE>). Never output ACTION: DARKMODE without the brackets! NAVIGATION RULE: If the user asks to go back, say 'I am returning to the previous screen.'\n"
-                f"CRITICAL HARD RULE: If the user's exact input is literally just 'Assistant is on' (which is just the app's startup sound echoing into the mic), you MUST reply with the exact word <IGNORE> and nothing else. But for ANY OTHER question or greeting, you must answer normally!"
+                f"The user's name is '{user_name}'. Use it rarely, at most once, and only when it feels natural. Do not place the name at the end of a sentence.\n"
+                f"CONVERSATION STYLE: Be warm, respectful, calm, and human-like. Do not use Sir, Ma'am, or overly formal titles. Do not greet on every turn; greet only when the user greets you or the conversation naturally starts.\n"
+                f"LANGUAGE STRICTNESS: The selected language is English. Do not output Hindi or Devanagari in spoken text. Previous non-English examples are behavior references only and must not be copied.\n"
+                f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
+                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
+                f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
+                f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in English, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
+                f"STARTUP ECHO: If the exact user input is only 'Assistant is on', output exactly <IGNORE> and nothing else."
             )
 
         # full_system is assembled dynamically inside process_query so it always has the correct active_page
@@ -361,9 +426,14 @@ async def voice_stream_endpoint(
                 photo_keywords = ["photo", "फोटो", "capture", "click", "तस्वीर", "तसवीर", "pic", "picture", "छवि"]
                 query_wants_photo = any(kw in query.lower() for kw in photo_keywords)
                 is_first_chunk = True
+
+                def localized_text(english_text: str, hindi_text: str) -> str:
+                    if language.lower() == "english":
+                        return english_text
+                    return hindi_text
                 
                 # Assemble system prompt with the LATEST active_page
-                current_system = SYSTEM_PROMPT + "\n" + sys_lang + location_context + time_context + weather_context + "\n" + user_context
+                current_system = SYSTEM_PROMPT + "\n" + sys_lang + language_override + location_context + time_context + "\n" + user_context
                 current_system += f"\n\nCURRENT PAGE: {active_page}\n"
                 if active_page not in ["Scene Scanner", "Text Reader"]:
                     current_system += "CRITICAL: You are NOT on a camera page. If the user asks to take a photo or scan, you MUST output <ACTION: SCENE_SCANNER> BEFORE <ACTION: CAPTURE>. If the user asks to turn on the flashlight, DO NOT output <ACTION: FLASHLIGHT>. Instead, tell the user that the flashlight can only be used on the scanner screens."
@@ -430,11 +500,16 @@ async def voice_stream_endpoint(
                                     command = action_match.group(1).strip()
                                     buffer = buffer.replace(action_tag, "").lstrip()
                                     emitted_actions.append(command)
+                                    telemetry["actions"] += 1
+                                    log_voice_event("llm_action", command=command)
                                     
                                     if "CALCULATE_DISTANCE" in command:
                                         target_address = home_location if "HOME" in command else (command.split("|")[1] if "|" in command else "")
                                         if not current_location or not target_address:
-                                            await tts_queue.put("कृपया सेटिंग्स में अपना स्थान अपडेट करें।" if language.lower() in ["hindi", "hinglish"] else "Please update your location in Settings.")
+                                            await tts_queue.put(localized_text(
+                                                "Please update your location in Settings.",
+                                                "कृपया Settings में अपना स्थान अपडेट करें।",
+                                            ))
                                         else:
                                             try:
                                                 from app.services.osrm_service import calculate_distance_between_addresses, calculate_distance_from_coords
@@ -445,21 +520,25 @@ async def voice_stream_endpoint(
                                                 if result is not None:
                                                     km = result["distance_km"]
                                                     mins = result["duration_min"]
-                                                    if language.lower() in ["hindi", "hinglish"]:
-                                                        await tts_queue.put(f"{target_address} लगभग {km:.1f} किलोमीटर दूर है, गाड़ी से करीब {int(mins)} मिनट लगेंगे।")
-                                                    else:
-                                                        await tts_queue.put(f"{target_address} is approximately {km:.1f} kilometers away, about {int(mins)} minutes by car.")
+                                                    await tts_queue.put(localized_text(
+                                                        f"{target_address} is approximately {km:.1f} kilometers away, about {int(mins)} minutes by car.",
+                                                        f"{target_address} लगभग {km:.1f} किलोमीटर दूर है, गाड़ी से करीब {int(mins)} मिनट लगेंगे।",
+                                                    ))
                                                 else:
-                                                    if language.lower() in ["hindi", "hinglish"]:
-                                                        await tts_queue.put(f"{target_address} का सटीक स्थान नहीं मिल पा रहा है। क्या आप पिनकोड या कोई आसपास की मशहूर जगह बता सकते हैं?")
-                                                    else:
-                                                        await tts_queue.put(f"I couldn't find the exact location of {target_address}. Can you provide a pincode or a nearby landmark?")
+                                                    await tts_queue.put(localized_text(
+                                                        f"I couldn't find the exact location of {target_address}. Can you provide a pincode or a nearby landmark?",
+                                                        f"{target_address} का सटीक स्थान नहीं मिल पा रहा है। क्या आप पिनकोड या आसपास की कोई मशहूर जगह बता सकते हैं?",
+                                                    ))
                                             except Exception as e:
                                                 logger.error(f"OSRM error: {e}")
-                                                await tts_queue.put("दूरी निकालने में त्रुटि हुई।" if language.lower() in ["hindi", "hinglish"] else "There was an error calculating the distance.")
+                                                await tts_queue.put(localized_text(
+                                                    "There was an error calculating the distance.",
+                                                    "दूरी निकालने में त्रुटि हुई।",
+                                                ))
                                     else:
                                         try:
                                             await websocket.send_text(json.dumps({"type": "action", "command": command}))
+                                            log_voice_event("action_sent", command=command)
                                             # Track page changes for context
                                             if "SCENE_SCANNER" in command:
                                                 active_page = "Scene Scanner"
@@ -469,6 +548,7 @@ async def voice_stream_endpoint(
                                                 active_page = "Home"
                                         except Exception as send_err:
                                             logger.warning(f"Could not send action to websocket: {send_err}")
+                                            log_voice_event("action_send_failed", command=command, error=type(send_err).__name__)
                                     
                                     action_match = re.search(r"<ACTION:\s*([^>]+)>", buffer)
 
@@ -496,7 +576,7 @@ async def voice_stream_endpoint(
                                     buffer = remainder # Commit the split
                                     
                                     if sentence:
-                                        # Fix Llama stuttering duplicate phrases (e.g., "मैं Settings खोल रहा हूँ मैं Settings खोल रहा हूँ")
+                                        # Fix Llama stuttering duplicate phrases.
                                         half = len(sentence) // 2
                                         if len(sentence) > 10 and sentence[:half].strip() == sentence[half:].strip():
                                             sentence = sentence[:half].strip()
@@ -514,20 +594,27 @@ async def voice_stream_endpoint(
                     has_capture = any("CAPTURE" in a for a in emitted_actions)
                     if query_wants_photo and has_scanner and not has_capture:
                         logger.info("⚡ Auto-injecting CAPTURE action (LLM forgot it)")
+                        telemetry["capture_fallbacks"] += 1
+                        log_voice_event("capture_fallback_injected", reason="scanner_without_capture")
                         try:
                             await websocket.send_text(json.dumps({"type": "action", "command": "CAPTURE"}))
+                            log_voice_event("action_sent", command="CAPTURE")
                         except Exception:
-                            pass
+                            log_voice_event("action_send_failed", command="CAPTURE")
                     # If user asked for photo and we're ALREADY on scanner but LLM didn't emit CAPTURE
                     elif query_wants_photo and active_page == "Scene Scanner" and not has_capture:
                         logger.info("⚡ Auto-injecting CAPTURE action (already on scanner)")
+                        telemetry["capture_fallbacks"] += 1
+                        log_voice_event("capture_fallback_injected", reason="already_on_scanner")
                         try:
                             await websocket.send_text(json.dumps({"type": "action", "command": "CAPTURE"}))
+                            log_voice_event("action_sent", command="CAPTURE")
                         except Exception:
-                            pass
+                            log_voice_event("action_send_failed", command="CAPTURE")
                             
                 except Exception as e:
                     logger.error(f"LLM Worker Error: {e}")
+                    log_voice_event("llm_worker_error", error=type(e).__name__)
 
             while True:
                 transcript = await llm_trigger_queue.get()
@@ -536,7 +623,7 @@ async def voice_stream_endpoint(
                 asyncio.create_task(process_query(transcript))
 
     async def tts_pipeline_worker():
-        sarvam_lang = "hi-IN" if language.lower() in ["hindi", "hinglish"] else "en-IN"
+        sarvam_lang = "en-IN" if language.lower() == "english" else "hi-IN"
         import aiohttp
         tts_headers = {"api-subscription-key": sarvam_key, "Content-Type": "application/json"}
         tts_url = "https://api.sarvam.ai/text-to-speech"
@@ -570,25 +657,43 @@ async def voice_stream_endpoint(
                     return
 
                 audio_b64 = None
-                try:
-                    logger.info(f"🎙️ TTS Fetching: '{clean_sentence}'")
-                    tts_start = time.time()
-                    async with tts_session.post(
-                        tts_url,
-                        json={"inputs": [clean_sentence], "target_language_code": sarvam_lang, "speaker": "simran", "model": "bulbul:v3"},
-                        headers=tts_headers
-                    ) as res:
-                        if res.status == 200:
-                            data = await res.json()
-                            if "audios" in data and len(data["audios"]) > 0:
-                                tts_duration = (time.time() - tts_start) * 1000
-                                logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
-                                audio_b64 = data["audios"][0]
-                        else:
-                            error_text = await res.text()
-                            logger.error(f"TTS API Error: {res.status} - {error_text}")
-                except Exception as e:
-                    logger.error(f"TTS Fetch Error: {e}")
+                max_tts_attempts = 3
+                for attempt in range(1, max_tts_attempts + 1):
+                    try:
+                        logger.info("🎙️ TTS Fetching attempt %s/%s: '%s'", attempt, max_tts_attempts, clean_sentence)
+                        tts_start = time.time()
+                        async with tts_session.post(
+                            tts_url,
+                            json={"inputs": [clean_sentence], "target_language_code": sarvam_lang, "speaker": "simran", "model": "bulbul:v3"},
+                            headers=tts_headers,
+                        ) as res:
+                            if res.status == 200:
+                                data = await res.json()
+                                if "audios" in data and len(data["audios"]) > 0:
+                                    tts_duration = (time.time() - tts_start) * 1000
+                                    logger.info(f"⏱️ TTS TTFAB (Time to First Audio Byte): {tts_duration:.0f}ms")
+                                    log_voice_event("tts_fetched", attempt=attempt, chars=len(clean_sentence), ttfab_ms=round(tts_duration))
+                                    audio_b64 = data["audios"][0]
+                                    break
+
+                                logger.warning("TTS API returned 200 without audio")
+                                log_voice_event("tts_empty_audio", attempt=attempt)
+                            else:
+                                error_text = await res.text()
+                                logger.error(f"TTS API Error: {res.status} - {error_text}")
+                                log_voice_event("tts_api_error", attempt=attempt, status=res.status)
+                                if res.status < 500 and res.status != 429:
+                                    break
+                    except Exception as e:
+                        logger.error(f"TTS Fetch Error on attempt {attempt}: {e}")
+                        log_voice_event("tts_fetch_error", attempt=attempt, error=type(e).__name__)
+
+                    if attempt < max_tts_attempts:
+                        await asyncio.sleep(0.35 * attempt)
+
+                if not audio_b64:
+                    telemetry["tts_failures"] += 1
+                    log_voice_event("tts_failed", chars=len(clean_sentence))
 
                 # Wait for previous chunk to finish sending before we send ours
                 await my_turn.wait()
@@ -596,8 +701,10 @@ async def voice_stream_endpoint(
                 if audio_b64:
                     try:
                         await websocket.send_text(json.dumps({"type": "audio", "data": audio_b64}))
+                        log_voice_event("audio_sent", chars=len(clean_sentence))
                     except Exception as ws_err:
                         logger.warning(f"Could not send audio to websocket: {ws_err}")
+                        log_voice_event("audio_send_failed", error=type(ws_err).__name__)
 
                 # Signal the next chunk that it's their turn
                 next_turn.set()
@@ -635,7 +742,9 @@ async def voice_stream_endpoint(
         )
     except Exception as e:
         logger.error(f"Core pipeline exception caught: %s", e)
+        log_voice_event("pipeline_exception", error=type(e).__name__)
     finally:
+        log_voice_event("session_end", **telemetry)
         await audio_ingest_queue.put(None)
         await llm_trigger_queue.put(None)
         await tts_queue.put(None)

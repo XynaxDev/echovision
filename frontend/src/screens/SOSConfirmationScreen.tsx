@@ -50,7 +50,7 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
     // Voice / Expo TTS logic
     if (!isVoiceActive && source === "manual") {
       triggerHaptic("heavy");
-      const isHindi = language === "hindi" || language === "hinglish";
+      const isHindi = language === "hindi";
       Speech.speak(
         isHindi 
           ? "क्या आप आपातकाल में हैं? मदद बुलाने के लिए बीच वाले SOS बटन को दबाएँ, या रद्द करने के लिए उसके नीचे वाले बटन को दबाएँ।"
@@ -73,7 +73,7 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
     triggerHaptic("heavy");
     if (!isVoiceActive) {
       Speech.stop();
-      const isHindi = language === "hindi" || language === "hinglish";
+      const isHindi = language === "hindi";
       const contact = await getPrimaryContact();
       Speech.speak(isHindi ? `${contact.name} को SOS कॉल किया जा रहा है।` : `Triggering SOS to ${contact.name}.`, { 
         language: isHindi ? "hi-IN" : "en-US",
@@ -92,7 +92,7 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
     triggerHaptic("medium");
     if (fromVoice !== true) {
       Speech.stop();
-      const isHindi = language === "hindi" || language === "hinglish";
+      const isHindi = language === "hindi";
       Speech.speak(isHindi ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.", { 
         language: isHindi ? "hi-IN" : "en-US",
         rate: 0.9
@@ -112,10 +112,10 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
       {/* Title Area */}
       <View style={styles.titleArea}>
         <AppText style={[styles.titleText, { color: colors.text }]}>
-          {(language === "hindi" || language === "hinglish") ? "क्या आप आपातकाल में हैं?" : "Are you in an emergency?"}
+          {language === "hindi" ? "क्या आप आपातकाल में हैं?" : "Are you in an emergency?"}
         </AppText>
         <AppText style={[styles.subtitleText, { color: colors.textSecondary }]}>
-          {(language === "hindi" || language === "hinglish") 
+          {language === "hindi"
             ? "नीचे दिए गए बटन को दबाएँ और मदद जल्द ही आप तक पहुँचेगी।" 
             : "Press the button below and help will reach you shortly."}
         </AppText>
@@ -141,7 +141,7 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
       <View style={styles.addressArea}>
         <View style={[styles.addressCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <AppText style={[styles.addressLabel, { color: colors.text }]}>
-            {(language === "hindi" || language === "hinglish") ? "आपका वर्तमान पता" : "Your Current Address"}
+            {language === "hindi" ? "आपका वर्तमान पता" : "Your Current Address"}
           </AppText>
           <View style={styles.addressRow}>
              <View style={styles.avatarPlaceholder}>

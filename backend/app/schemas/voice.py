@@ -34,12 +34,12 @@ class IntentRequest(BaseModel):
         ...,
         min_length=1,
         max_length=2000,
-        description="Transcribed Hinglish voice command string from the client.",
+        description="Transcribed voice command string from the client.",
         examples=["mujhe scene dikhao", "yeh kya likha hai", "emergency help chahiye"],
     )
     language: str = Field(
         default="hindi",
-        description="User language preference (english, hindi, hinglish)",
+        description="User language preference (english, hindi)",
     )
     username: str | None = Field(
         default=None,

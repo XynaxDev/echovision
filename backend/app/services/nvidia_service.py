@@ -37,7 +37,7 @@ _VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
 # Conversational Brain (Intent Classification & Text Response)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_INTENT_SYSTEM_PROMPT = """You are "EchoVision AI", a helpful, empathetic, and intelligent voice assistant built for the EchoVision app. You help visually impaired users navigate the app and use its features. If a user asks who you are or what you can do, proudly state your identity and mention you can help with Scene Scanning, Text Reading, Emergency SOS, routing, and app settings.
+_INTENT_SYSTEM_PROMPT = """You are "EchoVision AI", a warm, respectful, female voice assistant built for the EchoVision accessibility app. You help blind and visually impaired users operate the app hands-free. If a user asks who you are or what you can do, briefly explain that you can help with Scene Scanner, Text Reader, Emergency SOS, distance/location support, weather/time from provided context, and app settings.
 
 Given a transcribed voice command from the user, classify it into EXACTLY ONE of the following navigation targets:
 
@@ -66,10 +66,11 @@ RULES:
 6. If the user is answering "yes", "haan", or "confirm" in response to an SOS confirmation prompt, set "action": "CONFIRM_SOS", "target": "CONFIRM_SOS" and do NOT generate conversational text.
 7. If the user is answering "no", "cancel", "turn off sos" or "band karo" in response to an SOS prompt, set "action": "CANCEL_SOS", "target": "CANCEL_SOS" and do NOT generate conversational text.
 8. Do NOT include any explanation, markdown formatting, or extra text. ONLY raw JSON.
-9. CONVERSATIONAL RULE: You are a friendly AI. If the user asks a general question, greets you, or says something off-topic, politely and concisely respond to them in `replyText` and set target="None". Do not say "Sorry I didn't get it" unless the input is complete gibberish.
-10. For Hindi/Hinglish responses, ALWAYS use the male persona (e.g., use 'raha hu' instead of 'rahi hu', 'karunga' instead of 'karungi').
+9. CONVERSATIONAL RULE: You are friendly, respectful, and concise. If the user greets you or asks something conversational, respond naturally in `replyText` and set target="None". Do not say "Sorry I didn't get it" unless the input is complete gibberish.
+10. PERSONA RULE: Use a female assistant persona. For Hindi responses, always use feminine first-person grammar. Never use masculine first-person grammar.
+11. GROUNDING RULE: Do not invent app features, routes, weather, location, or outside facts. Use only the request and provided context. For out-of-scope knowledge, politely say you can help with EchoVision instead.
 
-11. If the user asks to trigger SOS or emergency, set "target": "SOS" and in "replyText" ALWAYS ask the user for confirmation (e.g., "Are you sure you want to trigger SOS? Say yes to confirm or cancel to abort.").
+12. If the user asks to trigger SOS or emergency, set "target": "SOS" and in "replyText" ALWAYS ask the user for confirmation.
 
 Examples:
 - "mujhe scene dikhao" → {"target": "SceneScanner", "replyText": "Opening Scanner"}
@@ -89,12 +90,12 @@ async def generate_text_response(
     home_location: str | None = None,
     current_location: str | None = None,
 ) -> dict:
-    """Classify a Hinglish voice command and generate a text response.
+    """Classify a voice command and generate a text response.
 
     Parameters
     ----------
     text:
-        The transcribed user voice command in Hinglish.
+        The transcribed user voice command.
 
     Returns
     -------
@@ -109,9 +110,8 @@ async def generate_text_response(
     logger.info("Generating text response for: %s", text[:100])
 
     lang_rules = {
-        "english": "CRITICAL: You MUST generate the `replyText` ONLY in clean, conversational English.",
-        "hindi": "CRITICAL: You are FORBIDDEN from using English words in the `replyText`. You MUST write it strictly in conversational Hindi using actual Devanagari script. IMPORTANT: You MUST use male pronouns/verbs (e.g. 'मैं आपकी मदद कर रहा हूँ', NOT 'कर रही हूँ'). CRITICAL GRAMMAR: Always use 'मैंने' instead of 'मैं' when using past tense transitive verbs (e.g., 'मैंने SOS चालू कर दिया है' NOT 'मैं SOS चालू कर दिया है').",
-        "hinglish": "CRITICAL: You MUST generate the `replyText` ONLY in Hinglish (Hindi written in English alphabet). Do NOT use Devanagari. IMPORTANT: You MUST use male pronouns/verbs (e.g. 'Main aapki madad kar raha hoon', NOT 'kar rahi hoon'). CRITICAL GRAMMAR: Always use 'maine' instead of 'main' for past tense transitive verbs (e.g., 'maine SOS chalu kar diya hai' NOT 'main SOS chalu kar diya hai').",
+        "english": "CRITICAL: Generate `replyText` only in clean, conversational English. Never output Hindi or Devanagari in English mode.",
+        "hindi": "CRITICAL: Generate `replyText` in conversational Hindi using Devanagari script. Keep short app feature names readable in English only when needed, such as Settings, Scene Scanner, Text Reader, SOS, Photo, Flashlight, and TalkBack. Use feminine first-person grammar, never masculine.",
     }
     lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
 
@@ -182,7 +182,6 @@ def get_scene_prompt(language: str = "hindi") -> str:
     lang_rules = {
         "english": "You MUST write the response ONLY in clean, conversational English. Start the description exactly with: 'In the captured photo, '",
         "hindi": "CRITICAL: You MUST write the response ONLY in conversational Hindi using Devanagari script. Do NOT use English. Start the description exactly with: 'ली गई तस्वीर में, '",
-        "hinglish": "CRITICAL: You MUST write the response ONLY in Hinglish (Hindi written in English alphabet). Do NOT use Devanagari. Start the description exactly with: 'Li gayi tasveer me, '",
     }
     lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
 
@@ -203,7 +202,7 @@ RULES:
 async def scan_scene_with_nvidia(
     image_base64: str, mime_type: str = "image/jpeg", language: str = "hindi"
 ) -> str:
-    """Generate a Hindi/Hinglish scene description from a base64-encoded image using Llama Vision.
+    """Generate a Hindi or English scene description from a base64-encoded image using Llama Vision.
 
     Parameters
     ----------
@@ -245,9 +244,9 @@ async def scan_scene_with_nvidia(
 
     # Step 2: Translate if the user requested a non-English language
     if language.lower() != "english":
+        target_language = "hindi"
         lang_rules = {
             "hindi": "CRITICAL: Translate the text strictly into conversational Hindi. You MUST write everything in the Devanagari script. DO NOT use ANY Roman/English letters (A-Z). Transliterate technical terms (e.g. 'terminal' -> 'टर्मिनल', 'keyboard' -> 'कीबोर्ड').",
-            "hinglish": "CRITICAL: Translate the text strictly into Hinglish (Hindi written in English alphabet). Do NOT use Devanagari.",
         }
         lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
 
@@ -255,7 +254,7 @@ async def scan_scene_with_nvidia(
             trans_response = await _client.chat.completions.create(
                 model=_TEXT_MODEL,
                 messages=[
-                    {"role": "system", "content": f"You are a strict translation engine. Translate to {language}. {lang_instruction} NO CONVERSATIONAL FILLER. Output ONLY the translated text."},
+                    {"role": "system", "content": f"You are a strict translation engine. Translate to {target_language}. {lang_instruction} NO CONVERSATIONAL FILLER. Output ONLY the translated text."},
                     {"role": "user", "content": english_description}
                 ],
                 temperature=0.1,
@@ -274,9 +273,9 @@ async def scan_scene_with_nvidia(
 from typing import AsyncGenerator
 
 async def translate_sentence(english_sentence: str, language: str) -> str:
+    target_language = "english" if language.lower() == "english" else "hindi"
     lang_rules = {
-        "hindi": "CRITICAL: You are FORBIDDEN from using English words or Latin alphabet letters. Translate the text strictly into conversational Hindi using actual pure Devanagari script. Ensure male pronouns/verbs are used. Do NOT output Hinglish.",
-        "hinglish": "CRITICAL: Translate the text strictly into Hinglish (Hindi written in English alphabet). Do NOT use Devanagari. Ensure male pronouns/verbs are used.",
+        "hindi": "CRITICAL: Translate the text strictly into conversational Hindi using Devanagari script. Do NOT output Romanized Hindi. If first-person assistant grammar appears, use feminine forms.",
     }
     lang_instruction = lang_rules.get(language.lower(), lang_rules["hindi"])
     
@@ -284,7 +283,7 @@ async def translate_sentence(english_sentence: str, language: str) -> str:
         res = await _client.chat.completions.create(
             model=_TEXT_MODEL,
             messages=[
-                {"role": "system", "content": f"You are a strict translation engine. Translate to {language}. {lang_instruction} NO CONVERSATIONAL FILLER. Output ONLY the translated text."},
+                {"role": "system", "content": f"You are a strict translation engine. Translate to {target_language}. {lang_instruction} NO CONVERSATIONAL FILLER. Output ONLY the translated text."},
                 {"role": "user", "content": english_sentence}
             ],
             temperature=0.1,
@@ -298,7 +297,7 @@ async def translate_sentence(english_sentence: str, language: str) -> str:
 async def stream_scene_with_nvidia(
     image_base64: str, mime_type: str = "image/jpeg", language: str = "hindi"
 ) -> AsyncGenerator[str, None]:
-    """Stream a Hindi/Hinglish scene description chunk by chunk from a base64-encoded image."""
+    """Stream a Hindi or English scene description chunk by chunk from a base64-encoded image."""
     logger.info("Streaming scene description via NVIDIA (mime_type=%s)", mime_type)
 
     data_uri = f"data:{mime_type};base64,{image_base64}"

@@ -30,8 +30,8 @@ class ScanRequest(BaseModel):
     )
     language: str = Field(
         default="hindi",
-        description="The language to generate the description in. e.g. english, hindi, hinglish.",
-        examples=["hindi", "english", "hinglish"],
+        description="The language to generate the description in. e.g. english or hindi.",
+        examples=["hindi", "english"],
     )
 
 
@@ -41,13 +41,13 @@ class ScanResponse(BaseModel):
     description: str = Field(
         ...,
         description=(
-            "Natural spoken Hindi/Hinglish scene summary of the image content, "
+            "Natural spoken Hindi or English scene summary of the image content, "
             "limited to a maximum of 3 sentences."
         ),
         examples=[
-            "Yeh ek park hai jahan bachche khel rahe hain. "
-            "Ped ke neeche ek bench hai aur kuch log baithe hain. "
-            "Mausam saaf aur dhoop wala lag raha hai."
+            "यह एक पार्क है जहाँ बच्चे खेल रहे हैं। "
+            "पेड़ के नीचे एक बेंच है और कुछ लोग बैठे हैं। "
+            "मौसम साफ और धूप वाला लग रहा है।"
         ],
     )
 

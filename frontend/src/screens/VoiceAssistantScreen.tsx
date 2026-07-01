@@ -157,9 +157,6 @@ export function VoiceAssistantScreen({ navigation }: Props): React.JSX.Element {
         } else if (action === "set_language_hindi") {
           await AsyncStorage.setItem("@echovision_language", "hindi");
           confirmMsg = "Language has been set to Hindi.";
-        } else if (action === "set_language_hinglish") {
-          await AsyncStorage.setItem("@echovision_language", "hinglish");
-          confirmMsg = "Language has been set to Hinglish.";
         }
 
         setStatusMessage(confirmMsg);

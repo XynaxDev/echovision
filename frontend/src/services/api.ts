@@ -133,7 +133,7 @@ async function apiRequest<T>(
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Classify a Hinglish voice command into a navigation target.
+ * Classify a voice command into a navigation target.
  *
  * @param language - The selected user language.
  * @param username - The user's name for personalized greetings.
@@ -311,7 +311,7 @@ export async function playSarvamTTS(text: string, language: string = "hindi"): P
  * Send a base64-encoded image to Gemini for scene description.
  *
  * @param base64Image - Raw base64 string of the image (no data URI prefix).
- * @param language - The selected user language (e.g. "hindi", "hinglish").
+ * @param language - The selected user language (e.g. "hindi", "english").
  * @returns The scene description.
  */
 export async function scanScene(base64Image: string, language: string): Promise<ScanResponse> {
