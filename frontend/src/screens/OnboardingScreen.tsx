@@ -66,17 +66,7 @@ export function OnboardingScreen({ navigation }: Props): React.JSX.Element {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View style={styles.topRow}>
-            <Pressable 
-              onPress={() => navigation.goBack()}
-              style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.6 : 1 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Feather name="arrow-left" size={28} color={colors.text} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-          </View>
+
           <View style={{ alignItems: 'center', marginBottom: 16 }}>
             <Image 
               source={require("../../assets/echovisionapplogo_cropped.png")} 

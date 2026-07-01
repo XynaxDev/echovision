@@ -144,7 +144,7 @@ async def speech_to_text(
 async def text_to_speech(
     text: str,
     language_code: str = "hi-IN",
-    speaker: str = "ashutosh",
+    speaker: str = "simran",
     model: str = "bulbul:v3",
 ) -> bytes:
     """Synthesize speech audio from text using Sarvam AI TTS.

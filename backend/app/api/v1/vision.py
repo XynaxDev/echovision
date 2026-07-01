@@ -74,7 +74,7 @@ async def vision_stream_endpoint(websocket: WebSocket):
                     audio_bytes = await sarvam_service.text_to_speech(
                         text=sentence,
                         language_code=lang_code,
-                        speaker="ashutosh"
+                        speaker="simran"
                     )
                     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
                     await websocket.send_text(json.dumps({

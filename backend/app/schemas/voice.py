@@ -108,9 +108,9 @@ class TTSRequest(BaseModel):
         examples=["hi-IN", "en-IN"],
     )
     speaker: str = Field(
-        default="ashutosh",
-        description="Sarvam AI speaker voice identifier.",
-        examples=["ashutosh", "arvind"],
+        default="simran",
+        description="Speaker voice to use (e.g., simran, arvind).",
+        examples=["simran", "arvind"],
     )
     model: str = Field(
         default="bulbul:v3",
