@@ -43,6 +43,11 @@ def test_voice_prompt_preserves_required_action_tags():
         "<ACTION: TALKBACK_ON>",
         "<ACTION: TALKBACK_OFF>",
         "<ACTION: UPDATE_LOCATION>",
+        "<ACTION: LEGAL_ABOUT>",
+        "<ACTION: LEGAL_PRIVACY>",
+        "<ACTION: LEGAL_TERMS>",
+        "<ACTION: LEGAL_COOKIE>",
+        "<ACTION: LEGAL_LICENSE>",
         "<ACTION: CAPTURE>",
         "<ACTION: FLASHLIGHT>",
         "<ACTION: INTERRUPT_TTS>",
@@ -72,6 +77,11 @@ def test_frontend_handles_prompted_action_commands():
         "TALKBACK_ON",
         "TALKBACK_OFF",
         "UPDATE_LOCATION",
+        "LEGAL_ABOUT",
+        "LEGAL_PRIVACY",
+        "LEGAL_TERMS",
+        "LEGAL_COOKIE",
+        "LEGAL_LICENSE",
         "CAPTURE",
         "FLASHLIGHT",
         "INTERRUPT_TTS",
@@ -104,3 +114,11 @@ def test_prompt_does_not_contain_masculine_first_person_examples():
 
     for phrase in blocked_phrases:
         assert phrase not in combined
+
+
+def test_language_repair_guard_exists_for_streamed_tts():
+    voice_source = read_repo_file("backend/app/api/v1/voice.py")
+
+    assert "language_safe_history" in voice_source
+    assert "enforce_spoken_language" in voice_source
+    assert "language_repaired" in voice_source

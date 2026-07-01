@@ -73,6 +73,11 @@ SUPPORTED ACTIONS:
 - TalkBack On: <ACTION: TALKBACK_ON>
 - TalkBack Off: <ACTION: TALKBACK_OFF>
 - Update Location: <ACTION: UPDATE_LOCATION>
+- About EchoVision: <ACTION: LEGAL_ABOUT>
+- Privacy Policy: <ACTION: LEGAL_PRIVACY>
+- Terms of Service: <ACTION: LEGAL_TERMS>
+- Cookie Policy: <ACTION: LEGAL_COOKIE>
+- End-User License: <ACTION: LEGAL_LICENSE>
 - Capture Photo / Click Photo: <ACTION: CAPTURE>
 - Turn on/off Flashlight: <ACTION: FLASHLIGHT>
 - Stop Reading / Interrupt: <ACTION: INTERRUPT_TTS>
@@ -84,6 +89,12 @@ GROUNDING AND SAFETY:
 - Do not answer general knowledge, politics, sports, coding, trivia, medical, legal, or financial questions. Briefly say you can help with EchoVision, current weather/time/location, navigation distance, and app actions.
 - Never ask blind users visual questions like what they can see. Offer app actions such as taking a photo, opening Scene Scanner, reading text, or turning on flashlight when appropriate.
 - Never output unsupported actions or map a request to the wrong action just to be helpful.
+
+SETTINGS AND APP KNOWLEDGE:
+- Settings contains language, theme, text size, haptics, TalkBack feedback, current location update, profile name/home address, SOS contacts, legal pages, and logout.
+- You can directly change language, theme, haptics, TalkBack, update location, open Settings, and open legal pages.
+- For profile edits, home address edits, adding/removing SOS contacts, text size selection, or logout, open Settings and briefly tell the user what to change there. Do not pretend to type, save, delete, or log out unless a supported action exists.
+- Legal pages available by voice are About EchoVision, Privacy Policy, Terms of Service, Cookie Policy, and End-User License. You may summarize what each page is for, but do not quote long policy text unless the page content is open in the app.
 
 DISTANCE QUERIES:
 - If a destination is clear, output the distance action tag directly.
@@ -102,10 +113,12 @@ async def voice_stream_endpoint(
     home_location: str = "",
     active_page: str = "Home",
     user_name: str = "User",
-    emergency_contact: str = "Emergency Services"
+    emergency_contact: str = "Emergency Services",
+    client_timezone: str = "Asia/Kolkata",
 ):
+    selected_language = "english" if language.lower() == "english" else "hindi"
     user_name = user_name.split()[0] if user_name else "User"
-    dg_lang = "en-IN" if language.lower() == "english" else "hi"
+    dg_lang = "en-IN" if selected_language == "english" else "hi"
     url = f"wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language={dg_lang}&endpointing=300&utterance_end_ms=1000&vad_events=true&interim_results=true&smart_format=true&filler_words=false"
     
     deepgram_key = os.environ.get("DEEPGRAM_API_KEY", "")
@@ -126,7 +139,7 @@ async def voice_stream_endpoint(
         payload = {
             "session_id": session_id,
             "event": event,
-            "language": "english" if language.lower() == "english" else "hindi",
+            "language": selected_language,
             "active_page": active_page,
             **fields,
         }
@@ -134,9 +147,17 @@ async def voice_stream_endpoint(
 
     log_voice_event("session_start")
 
+    try:
+        user_tz = pytz.timezone(client_timezone)
+    except Exception:
+        user_tz = pytz.timezone("Asia/Kolkata")
+
     weather_context = ""
-    async def fetch_weather_bg():
+    weather_last_fetched = 0.0
+
+    async def refresh_weather_context():
         nonlocal weather_context
+        nonlocal weather_last_fetched
         if current_lat and current_lon:
             try:
                 async with httpx.AsyncClient(timeout=5.0) as weather_client:
@@ -165,11 +186,14 @@ async def voice_stream_endpoint(
                             f"Temperature: {temp}°C (Feels like {feels_like}°C). Condition: {weather_desc}. Precipitation (Rain): {precip}mm.\n"
                             f"WEATHER RULE: ONLY mention the weather, temperature, or rain if the user EXPLICITLY asks about it. DO NOT randomly bring up the weather. When answering weather queries, naturally mention the user's city exactly as provided (e.g., '{current_location}'). CRITICAL: NEVER guess, hallucinate, or assume the state, country, or region (like 'Gujarat' or 'India') based on the city name! Only speak the exact location name provided in this context. You MUST strictly state exactly what is provided in this context. If Precipitation is 0mm, do NOT say it is raining."
                         )
+                        weather_last_fetched = time.time()
+                        log_voice_event("weather_context_refreshed")
             except Exception as e:
                 logger.error(f"Failed to fetch weather: {type(e).__name__} - {e}")
+                log_voice_event("weather_context_failed", error=type(e).__name__)
                 
     # Fetch weather completely in the background so it doesn't delay STT connection
-    asyncio.create_task(fetch_weather_bg())
+    asyncio.create_task(refresh_weather_context())
 
     audio_ingest_queue = asyncio.Queue()
     llm_trigger_queue = asyncio.Queue()
@@ -292,9 +316,17 @@ async def voice_stream_endpoint(
                             await llm_trigger_queue.put(transcript)
             except websockets.exceptions.ConnectionClosed as exc:
                 log_voice_event("deepgram_listen_closed", code=getattr(exc, "code", None))
+                try:
+                    await websocket.close(code=1011)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"Deepgram Listen Error: {e}")
                 log_voice_event("deepgram_listen_error", error=type(e).__name__)
+                try:
+                    await websocket.close(code=1011)
+                except Exception:
+                    pass
 
         asyncio.create_task(listen_deepgram())
         
@@ -308,6 +340,10 @@ async def voice_stream_endpoint(
                 except Exception as e:
                     logger.warning("Deepgram KeepAlive failed: %s", e)
                     log_voice_event("deepgram_keepalive_failed", error=type(e).__name__)
+                    try:
+                        await websocket.close(code=1011)
+                    except Exception:
+                        pass
                     break
                 continue
                 
@@ -326,10 +362,14 @@ async def voice_stream_endpoint(
             except Exception as e:
                 logger.warning("Deepgram audio send failed: %s", e)
                 log_voice_event("deepgram_audio_send_failed", error=type(e).__name__)
+                try:
+                    await websocket.close(code=1011)
+                except Exception:
+                    pass
                 break
 
     async def llm_stream_worker():
-        if language.lower() != "english":
+        if selected_language == "hindi":
             sys_lang = (
                 "LANGUAGE RULE:\n"
                 "1. The selected app language is Hindi. Reply in Devanagari Hindi only, while keeping app feature names readable in English alphabets when needed: Settings, Scene Scanner, Text Reader, SOS, Camera, Photo, Flashlight, TalkBack.\n"
@@ -363,15 +403,6 @@ async def voice_stream_endpoint(
         if location_context:
             location_context = "\nLOCATION CONTEXT (use this to answer location questions accurately):" + location_context
 
-        # Get current date and time in IST
-        tz = pytz.timezone('Asia/Kolkata')
-        now = datetime.now(tz)
-        time_context = f"\n\n[CONTEXT] CURRENT DATE & TIME:\nToday is {now.strftime('%A, %B %d, %Y')}. The current time is {now.strftime('%I:%M %p')}. TIME & DATE RULE: ONLY state the time or date if the user EXPLICITLY asks for it. When answering date or day queries, state it simply and directly (e.g., 'आज बुधवार है' or 'आज 01 जुलाई है'). DO NOT say things like 'मंगलवार नहीं, बल्कि बुधवार है' (not tuesday, but wednesday). Just give the direct answer naturally."
-        
-        if weather_context:
-            time_context += weather_context
-
-        selected_language = "english" if language.lower() == "english" else "hindi"
         language_override = (
             f"\n\nCURRENT SELECTED LANGUAGE: {selected_language}\n"
             "This is the user's current app language setting and it overrides examples, old memory, and previous turns. "
@@ -380,7 +411,7 @@ async def voice_stream_endpoint(
             "Action tags must stay exactly as tags and do not count as spoken language."
         )
 
-        if language.lower() != "english":
+        if selected_language == "hindi":
             user_context = (
                 f"\n\nUSER INFO:\n"
                 f"The user's name is '{user_name}'. Use it rarely, at most once, and only when it feels natural. Do not place the name at the end of a sentence.\n"
@@ -388,7 +419,8 @@ async def voice_stream_endpoint(
                 f"FEMININE PERSONA: The assistant voice is female. In Hindi, always use feminine first-person grammar. Never use masculine first-person forms.\n"
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
                 f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
-                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"SETTINGS ACTIONS: You can directly open Settings, change language, switch dark/light theme, toggle haptics, toggle TalkBack, update current location, and open legal pages. For profile, home address, SOS contact edits, text size selection, and logout, open Settings and guide briefly.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
                 f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
                 f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in the selected language, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
@@ -402,7 +434,8 @@ async def voice_stream_endpoint(
                 f"LANGUAGE STRICTNESS: The selected language is English. Do not output Hindi or Devanagari in spoken text. Previous non-English examples are behavior references only and must not be copied.\n"
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
                 f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
-                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"SETTINGS ACTIONS: You can directly open Settings, change language, switch dark/light theme, toggle haptics, toggle TalkBack, update current location, and open legal pages. For profile, home address, SOS contact edits, text size selection, and logout, open Settings and guide briefly.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
                 f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
                 f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in English, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
@@ -428,12 +461,111 @@ async def voice_stream_endpoint(
                 is_first_chunk = True
 
                 def localized_text(english_text: str, hindi_text: str) -> str:
-                    if language.lower() == "english":
+                    if selected_language == "english":
                         return english_text
                     return hindi_text
+
+                def user_asked_weather(text: str) -> bool:
+                    lowered = text.lower()
+                    weather_terms = [
+                        "weather",
+                        "temperature",
+                        "rain",
+                        "raining",
+                        "forecast",
+                        "मौसम",
+                        "तापमान",
+                        "बारिश",
+                        "बरसात",
+                    ]
+                    return any(term in lowered or term in text for term in weather_terms)
+
+                def has_devanagari(text: str) -> bool:
+                    return bool(re.search(r"[\u0900-\u097F]", text))
+
+                def language_safe_history(history: list[dict]) -> list[dict]:
+                    safe_history = []
+                    for item in history[-10:]:
+                        role = item.get("role")
+                        content = item.get("content", "")
+                        if role == "assistant":
+                            if selected_language == "english" and has_devanagari(content):
+                                continue
+                            if selected_language == "hindi" and not has_devanagari(content):
+                                continue
+                        safe_history.append(item)
+                    return safe_history[-6:]
+
+                async def enforce_spoken_language(sentence: str) -> str:
+                    clean = sentence.strip()
+                    if not clean:
+                        return clean
+
+                    needs_repair = (
+                        selected_language == "english" and has_devanagari(clean)
+                    ) or (
+                        selected_language == "hindi"
+                        and not has_devanagari(clean)
+                        and bool(re.search(r"[A-Za-z]", clean))
+                    )
+                    if not needs_repair:
+                        return clean
+
+                    target = "English" if selected_language == "english" else "Hindi in Devanagari script"
+                    system_text = (
+                        f"Convert the user's sentence to {target}. "
+                        "Preserve the meaning, keep it short and natural for text-to-speech, "
+                        "do not add facts, do not add markdown, and output only the converted sentence."
+                    )
+                    try:
+                        repair_payload = {
+                            "model": "meta/llama-3.1-8b-instruct",
+                            "messages": [
+                                {"role": "system", "content": system_text},
+                                {"role": "user", "content": clean},
+                            ],
+                            "stream": False,
+                            "temperature": 0.1,
+                            "max_tokens": 120,
+                        }
+                        res = await client.post(
+                            "https://integrate.api.nvidia.com/v1/chat/completions",
+                            json=repair_payload,
+                            headers={"Authorization": f"Bearer {nvidia_key}"},
+                        )
+                        res.raise_for_status()
+                        repaired = res.json()["choices"][0]["message"]["content"].strip()
+                        if repaired:
+                            log_voice_event("language_repaired", target=selected_language)
+                            return repaired
+                    except Exception as repair_error:
+                        logger.warning("Language repair failed: %s", repair_error)
+                        log_voice_event("language_repair_failed", error=type(repair_error).__name__)
+
+                    return clean
                 
                 # Assemble system prompt with the LATEST active_page
-                current_system = SYSTEM_PROMPT + "\n" + sys_lang + language_override + location_context + time_context + "\n" + user_context
+                if user_asked_weather(query) and current_lat and current_lon and (
+                    not weather_context or time.time() - weather_last_fetched > 180
+                ):
+                    try:
+                        await asyncio.wait_for(refresh_weather_context(), timeout=5.5)
+                    except Exception as weather_wait_error:
+                        log_voice_event("weather_context_wait_failed", error=type(weather_wait_error).__name__)
+
+                query_now = datetime.now(user_tz)
+                effective_time_context = (
+                    f"\n\n[CONTEXT] CURRENT DATE & TIME:\n"
+                    f"Today is {query_now.strftime('%A, %B %d, %Y')}. "
+                    f"The current time is {query_now.strftime('%I:%M %p')}. "
+                    "TIME & DATE RULE: ONLY state the time or date if the user EXPLICITLY asks for it. "
+                    "When answering date or day queries, state it simply and directly. "
+                    "Do not correct an imagined wrong day; just give the direct answer naturally."
+                )
+                if weather_context:
+                    effective_time_context += weather_context
+
+                current_system = SYSTEM_PROMPT + "\n" + sys_lang + language_override + location_context + effective_time_context + "\n" + user_context
                 current_system += f"\n\nCURRENT PAGE: {active_page}\n"
                 if active_page not in ["Scene Scanner", "Text Reader"]:
                     current_system += "CRITICAL: You are NOT on a camera page. If the user asks to take a photo or scan, you MUST output <ACTION: SCENE_SCANNER> BEFORE <ACTION: CAPTURE>. If the user asks to turn on the flashlight, DO NOT output <ACTION: FLASHLIGHT>. Instead, tell the user that the flashlight can only be used on the scanner screens."
@@ -442,7 +574,7 @@ async def voice_stream_endpoint(
                 
                 
                 messages = [{"role": "system", "content": current_system}]
-                messages.extend(chat_history[-6:]) # Keep last 6 messages
+                messages.extend(language_safe_history(chat_history))
                 messages.append({"role": "user", "content": query})
                 
                 payload = {
@@ -469,7 +601,7 @@ async def voice_stream_endpoint(
                                     final_text = buffer.strip()
                                     if final_text and "<IGNORE>" not in final_text: 
                                         if "<ACTION" not in final_text:
-                                            await tts_queue.put(final_text)
+                                            await tts_queue.put(await enforce_spoken_language(final_text))
                                             
                                     if full_response.strip() and "<IGNORE>" not in full_response:
                                         chat_history.append({"role": "user", "content": query})
@@ -586,7 +718,7 @@ async def voice_stream_endpoint(
                                             # Ensure we aren't sending a partial action tag
                                             if "<ACTION" not in sentence:
                                                 is_first_chunk = False
-                                                await tts_queue.put(sentence)
+                                                await tts_queue.put(await enforce_spoken_language(sentence))
                     
                     # ── DETERMINISTIC FALLBACK ──
                     # If user asked for photo AND LLM opened scanner but forgot CAPTURE → inject it
@@ -623,7 +755,7 @@ async def voice_stream_endpoint(
                 asyncio.create_task(process_query(transcript))
 
     async def tts_pipeline_worker():
-        sarvam_lang = "en-IN" if language.lower() == "english" else "hi-IN"
+        sarvam_lang = "en-IN" if selected_language == "english" else "hi-IN"
         import aiohttp
         tts_headers = {"api-subscription-key": sarvam_key, "Content-Type": "application/json"}
         tts_url = "https://api.sarvam.ai/text-to-speech"

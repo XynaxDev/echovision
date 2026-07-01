@@ -22,6 +22,7 @@ import * as Location from 'expo-location';
 import { useLanguage } from "./LanguageContext";
 import { useAppTheme } from "./ThemeContext";
 import { API_BASE_URL } from "../services/api";
+import { legalDocuments, legalDocumentsHi } from "../data/legal";
 
 export interface ContextualCommands {
   onCapture?: () => boolean | void | Promise<boolean> | Promise<void>;
@@ -53,6 +54,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [activePage, setActivePage] = useState<string>("Home");
   const voiceActiveRef = useRef(false);
   const isSpeechActiveRef = useRef(false);
+  const languageRef = useRef(language);
+  const activePageRef = useRef(activePage);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
+  const suppressNextLanguageRestartRef = useRef(false);
   
   const contextualCommandsRef = useRef<ContextualCommands>({});
   const navigateDelegateRef = useRef<(target: string, params?: any) => void>(() => {});
@@ -67,6 +73,14 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const shieldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const micBufferRef = useRef<Buffer[]>([]);
   const isProcessingQueueRef = useRef(false);
+
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
+
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
 
   useEffect(() => {
     // 1. Initialize Live Audio Stream
@@ -201,13 +215,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     
     else if (upperCommand.includes("CHANGE_LANGUAGE")) {
       const newLang = upperCommand.includes("ENGLISH") ? "english" : "hindi";
+      languageRef.current = newLang;
+      suppressNextLanguageRestartRef.current = true;
       await setLanguage(newLang);
       
       // Quietly restart websocket to pass new language to backend
       // Delay to let the AI finish saying "Changing language" before the socket cuts
       setTimeout(() => {
           if (voiceActiveRef.current) {
-              restartStreamingSession();
+              restartStreamingSession(newLang);
           }
       }, 3500);
     }
@@ -222,6 +238,36 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       if (voiceActiveRef.current) toggleVoiceRef.current(); // Turn off voice when leaving app
     }
     else if (upperCommand.includes("GO_BACK")) navigateDelegateRef.current("GO_BACK");
+    else if (upperCommand.includes("LEGAL_")) {
+      const isHindi = languageRef.current === "hindi";
+      const legalMap = {
+        LEGAL_ABOUT: {
+          title: isHindi ? "EchoVision के बारे में" : "About EchoVision",
+          content: isHindi ? legalDocumentsHi.aboutApp : legalDocuments.aboutApp,
+        },
+        LEGAL_PRIVACY: {
+          title: isHindi ? "प्राइवेसी पॉलिसी" : "Privacy Policy",
+          content: isHindi ? legalDocumentsHi.privacyPolicy : legalDocuments.privacyPolicy,
+        },
+        LEGAL_TERMS: {
+          title: isHindi ? "सेवा की शर्तें" : "Terms of Service",
+          content: isHindi ? legalDocumentsHi.termsOfService : legalDocuments.termsOfService,
+        },
+        LEGAL_COOKIE: {
+          title: isHindi ? "कुकी नीति" : "Cookie Policy",
+          content: isHindi ? legalDocumentsHi.cookiePolicy : legalDocuments.cookiePolicy,
+        },
+        LEGAL_LICENSE: {
+          title: isHindi ? "लाइसेंस" : "End-User License",
+          content: isHindi ? legalDocumentsHi.license : legalDocuments.license,
+        },
+      };
+      const legalKey = Object.keys(legalMap).find((key) => upperCommand.includes(key)) as keyof typeof legalMap | undefined;
+      if (legalKey) {
+        contextualCommandsRef.current = {};
+        navigateDelegateRef.current("LegalViewer", legalMap[legalKey]);
+      }
+    }
     // Local contextual commands
     else if (upperCommand.includes("FLASHLIGHT")) {
         const pollFlashlight = async (retries = 0) => {
@@ -284,10 +330,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
                 
                 // Play confirmation immediately via frontend TTS
                 playLocalAnnouncement(
-                    language === "hindi"
+                    languageRef.current === "hindi"
                         ? `मैंने SOS चालू कर दिया है। ${contact.name} को कॉल किया जा रहा है। कृपया मदद की प्रतीक्षा करें।` 
                         : `I have triggered the SOS. Calling ${contact.name}. Please wait for help.`,
-                    language === "hindi" ? "hi-IN" : "en-US",
+                    languageRef.current === "hindi" ? "hi-IN" : "en-US",
                     () => {
                         executeSOS();
                     }
@@ -299,8 +345,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
                 navigateDelegateRef.current("GO_BACK");
                 if (!fromVoice) {
                     playLocalAnnouncement(
-                        language === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
-                        language === "hindi" ? "hi-IN" : "en-US"
+                        languageRef.current === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
+                        languageRef.current === "hindi" ? "hi-IN" : "en-US"
                     );
                 }
             }
@@ -317,8 +363,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         } else {
             contextualCommandsRef.current = {};
             playLocalAnnouncement(
-                language === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
-                language === "hindi" ? "hi-IN" : "en-US"
+                languageRef.current === "hindi" ? "SOS रद्द कर दिया गया है।" : "SOS Cancelled.",
+                languageRef.current === "hindi" ? "hi-IN" : "en-US"
             );
         }
      }
@@ -398,10 +444,12 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ── Start WebSocket Session ──
-  const startStreamingSession = async () => {
+  const startStreamingSession = async (sessionLanguage: "english" | "hindi" = languageRef.current) => {
     const currentLocation = await AsyncStorage.getItem("@echovision_current_location") || "";
     let currentLat = await AsyncStorage.getItem("@echovision_current_lat") || "";
     let currentLon = await AsyncStorage.getItem("@echovision_current_lon") || "";
+    const currentActivePage = activePageRef.current;
+    const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata";
     
     // Fallback if user never explicitly clicked 'Update Location' in settings
     if (!currentLat || !currentLon) {
@@ -420,15 +468,17 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     const homeAddress = await AsyncStorage.getItem("@echovision_home_address") || "";
     const userName = auth().currentUser?.displayName || "User";
     const primaryContact = await getPrimaryContact();
-    const locParams = `&current_location=${encodeURIComponent(currentLocation)}&current_lat=${currentLat}&current_lon=${currentLon}&home_location=${encodeURIComponent(homeAddress)}&active_page=${encodeURIComponent(activePage)}&user_name=${encodeURIComponent(userName)}&emergency_contact=${encodeURIComponent(primaryContact.name)}`;
+    const locParams = `&current_location=${encodeURIComponent(currentLocation)}&current_lat=${currentLat}&current_lon=${currentLon}&home_location=${encodeURIComponent(homeAddress)}&active_page=${encodeURIComponent(currentActivePage)}&user_name=${encodeURIComponent(userName)}&emergency_contact=${encodeURIComponent(primaryContact.name)}&client_timezone=${encodeURIComponent(clientTimezone)}`;
     triggerHaptic("medium");
     // Dynamically resolve WebSocket URL from central API Config
-    const WS_URL = API_BASE_URL.replace("http://", "ws://").replace("https://", "wss://") + `/api/v1/voice/stream?language=${language}${locParams}`;
+    const WS_URL = API_BASE_URL.replace("http://", "ws://").replace("https://", "wss://") + `/api/v1/voice/stream?language=${sessionLanguage}${locParams}`;
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => {
       console.log('✅ VOICE: WebSocket connected');
+      reconnectAttemptsRef.current = 0;
+      intentionalCloseRef.current = false;
       if (micBufferRef.current.length > 0) {
           console.log(`Flushing ${micBufferRef.current.length} buffered mic chunks...`);
           micBufferRef.current.forEach((chunk) => {
@@ -466,20 +516,39 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
     ws.onclose = () => {
       console.log('WebSocket closed');
-      LiveAudioStream.stop();
       audioQueue.current = [];
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
       isPlaying.current = false;
       isProcessingQueueRef.current = false;
+      wsRef.current = null;
+
+      if (intentionalCloseRef.current) {
+        intentionalCloseRef.current = false;
+        LiveAudioStream.stop();
+        return;
+      }
 
       // If the websocket closes unexpectedly (not triggered by user toggling off),
-      // we must update the UI state so it doesn't get stuck in a "zombie" active state.
+      // try to recover instead of leaving the assistant deaf.
       if (voiceActiveRef.current) {
-         console.log('Voice Assistant disconnected unexpectedly. Updating UI state.');
-         voiceActiveRef.current = false;
-         setIsVoiceActive(false);
-         if (contextualCommandsRef.current.onVoiceToggle) {
-           contextualCommandsRef.current.onVoiceToggle(false);
+         if (reconnectAttemptsRef.current < 3) {
+           reconnectAttemptsRef.current += 1;
+           console.log(`Voice Assistant disconnected. Reconnecting attempt ${reconnectAttemptsRef.current}/3...`);
+           try { LiveAudioStream.start(); } catch (e) { console.warn('⚠️ LiveAudioStream restart failed:', e); }
+           setTimeout(() => {
+             if (voiceActiveRef.current && !wsRef.current) {
+               startStreamingSession(languageRef.current);
+             }
+           }, 700 * reconnectAttemptsRef.current);
+         } else {
+           console.log('Voice Assistant disconnected repeatedly. Updating UI state.');
+           LiveAudioStream.stop();
+           voiceActiveRef.current = false;
+           setIsVoiceActive(false);
+           reconnectAttemptsRef.current = 0;
+           if (contextualCommandsRef.current.onVoiceToggle) {
+             contextualCommandsRef.current.onVoiceToggle(false);
+           }
          }
       }
     };
@@ -491,9 +560,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setIsVoiceActive(false);
       LiveAudioStream.stop();
       if (wsRef.current) {
+        intentionalCloseRef.current = true;
         wsRef.current.close();
         wsRef.current = null;
       }
+      reconnectAttemptsRef.current = 0;
       micBufferRef.current = [];
       audioQueue.current = [];
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
@@ -502,8 +573,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       if (contextualCommandsRef.current.onVoiceToggle) {
         contextualCommandsRef.current.onVoiceToggle(false);
       } else {
-        Speech.speak(language === "hindi" ? "वॉइस असिस्टेंट बंद" : "Voice Assistant Off", {
-          language: language === "hindi" ? "hi-IN" : "en-US",
+        Speech.speak(languageRef.current === "hindi" ? "वॉइस असिस्टेंट बंद" : "Voice Assistant Off", {
+          language: languageRef.current === "hindi" ? "hi-IN" : "en-US",
           pitch: 1.0, rate: 1.0
         });
       }
@@ -513,6 +584,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       voiceActiveRef.current = true;
       setIsVoiceActive(true);
       micBufferRef.current = [];
+      reconnectAttemptsRef.current = 0;
       // Start microphone IMMEDIATELY so no words are dropped while websocket connects
       try { LiveAudioStream.start(); } catch (e) { console.warn('⚠️ LiveAudioStream.start() failed:', e); }
       triggerHaptic("heavy");
@@ -522,8 +594,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       
       isSpeechActiveRef.current = true;
-      Speech.speak(language === "hindi" ? "असिस्टेंट चालू है" : "Assistant is on", {
-        language: language === "hindi" ? "hi-IN" : "en-US",
+      Speech.speak(languageRef.current === "hindi" ? "असिस्टेंट चालू है" : "Assistant is on", {
+        language: languageRef.current === "hindi" ? "hi-IN" : "en-US",
         pitch: 1.0,
         rate: 1.1,
         onDone: () => {
@@ -532,17 +604,17 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
             // Only start the WebSocket AFTER the announcement finishes.
             // This prevents the speaker's "Assistant is on" from echoing
             // into the mic and confusing Deepgram's VAD for 60+ seconds.
-            startStreamingSession();
+            startStreamingSession(languageRef.current);
         },
         onStopped: () => {
             isSpeechActiveRef.current = false;
             processAudioQueue();
-            startStreamingSession();
+            startStreamingSession(languageRef.current);
         },
         onError: () => {
             isSpeechActiveRef.current = false;
             processAudioQueue();
-            startStreamingSession();
+            startStreamingSession(languageRef.current);
         }
       });
       triggerHaptic("warning");
@@ -563,19 +635,33 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     processAudioQueue();
   }, []);
 
-  const restartStreamingSession = () => {
+  const restartStreamingSession = (nextLanguage: "english" | "hindi" = languageRef.current) => {
+    languageRef.current = nextLanguage;
     console.log("♻️ Seamlessly restarting websocket stream...");
     if (wsRef.current) {
       wsRef.current.onclose = null; // Prevent UI state from thinking it crashed
+      intentionalCloseRef.current = true;
       wsRef.current.close();
       wsRef.current = null;
     }
+    reconnectAttemptsRef.current = 0;
     setTimeout(() => {
         if (voiceActiveRef.current) {
-            startStreamingSession();
+            startStreamingSession(nextLanguage);
         }
     }, 500);
   };
+
+  useEffect(() => {
+    languageRef.current = language;
+    if (suppressNextLanguageRestartRef.current) {
+      suppressNextLanguageRestartRef.current = false;
+      return;
+    }
+    if (voiceActiveRef.current) {
+      restartStreamingSession(language);
+    }
+  }, [language]);
 
   toggleVoiceRef.current = toggleVoice;
 
