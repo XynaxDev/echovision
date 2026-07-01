@@ -83,7 +83,7 @@ function ThemeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
     const msg = `Theme set to ${mode} mode.`;
     if (talkbackOn) {
       Speech.stop();
-      Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      Speech.speak(language === "hindi" ? `थीम ${mode} में बदल दी गई है` : msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
     Toast.show({ type: "success", text1: "Theme updated", text2: msg });
   };
@@ -120,7 +120,7 @@ function TextSizeSelectorPill({ talkbackOn }: { talkbackOn: boolean }) {
     const msg = `Text size set to ${size}.`;
     if (talkbackOn) {
       Speech.stop();
-      Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      Speech.speak(language === "hindi" ? `टेक्स्ट का आकार ${size} कर दिया गया है` : msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
     Toast.show({ type: "success", text1: "Text size updated", text2: msg });
   };
@@ -244,7 +244,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     if (!talkbackOn) return;
     Speech.stop();
     const isHindi = language === "hindi";
-    Speech.speak(isHindi ? msgHi : msgEn, { language: isHindi ? "hi-IN" : "en-US" });
+    Speech.speak(isHindi ? msgHi : msgEn, { rate: 0.85, language: isHindi ? "hi-IN" : "en-US" });
   };
   
   const [contacts, setContacts] = useState<SOSContact[]>([]);
@@ -321,7 +321,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     const msg = newValue ? (language === "hindi" ? "टॉकबैक चालू है" : "TalkBack enabled") : (language === "hindi" ? "टॉकबैक बंद है" : "TalkBack disabled");
     if (newValue) {
       Speech.stop();
-      Speech.speak(msg, { language: language === "hindi" ? "hi-IN" : "en-US" });
+      Speech.speak(msg, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
     }
     Toast.show({ type: "success", text1: "Settings updated", text2: msg });
   };
@@ -332,7 +332,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
     triggerHaptic("light");
     if (talkbackOn) {
       Speech.stop();
-      Speech.speak(newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English", { language: newLang === "hindi" ? "hi-IN" : "en-US" });
+      Speech.speak(newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English", { rate: 0.85, language: newLang === "hindi" ? "hi-IN" : "en-US" });
     }
     Toast.show({ type: "success", text1: "Language updated", text2: newLang === "hindi" ? "भाषा हिंदी में बदल दी गई है" : "Language set to English" });
   };
@@ -480,12 +480,12 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
         await AsyncStorage.setItem("@echovision_current_lat", location.coords.latitude.toString());
         await AsyncStorage.setItem("@echovision_current_lon", location.coords.longitude.toString());
         triggerHaptic("success");
-        if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन अपडेट हो गई है" : "Location updated", { language: language === "hindi" ? "hi-IN" : "en-US" });
+        if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन अपडेट हो गई है" : "Location updated", { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
         Toast.show({ type: "success", text1: "Location updated", text2: "Current location refreshed." });
       }
     } catch (e) {
       triggerHaptic("error");
-      if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन नहीं मिल पाई" : "Failed to grab location", { language: language === "hindi" ? "hi-IN" : "en-US" });
+      if (talkbackOn) Speech.speak(language === "hindi" ? "लोकेशन नहीं मिल पाई" : "Failed to grab location", { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
       Toast.show({ type: "error", text1: "Location Error", text2: "Failed to grab location." });
     } finally {
       setIsSavingLoc(false);

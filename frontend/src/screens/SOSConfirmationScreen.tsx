@@ -58,7 +58,7 @@ export function SOSConfirmationScreen({ route, navigation }: Props) {
         {
           language: isHindi ? "hi-IN" : "en-US",
           pitch: 1.0,
-          rate: 0.9
+          rate: 0.85
         }
       );
     }

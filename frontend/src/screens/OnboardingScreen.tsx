@@ -39,7 +39,7 @@ export function OnboardingScreen({ navigation }: Props): React.JSX.Element {
 
       if (cam.status !== 'granted' || mic.status !== 'granted' || loc.status !== 'granted') {
         setIsRequesting(false);
-        Speech.speak("Some permissions were denied. Please enable them in your device settings.");
+        Speech.speak("Some permissions were denied. Please enable them in your device settings.", { rate: 0.85 });
         return; // Don't move onward if denied
       }
 
@@ -51,10 +51,10 @@ export function OnboardingScreen({ navigation }: Props): React.JSX.Element {
       } else {
         navigation.replace("Auth");
       }
-    } catch (e) {
+    } catch (e, { rate: 0.85 }) {
       console.error("Permission request failed", e);
       setIsRequesting(false);
-      Speech.speak("Permission request failed. Please try again.");
+      Speech.speak("Permission request failed. Please try again.", { rate: 0.85 });
     }
   };
 

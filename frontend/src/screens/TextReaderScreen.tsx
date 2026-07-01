@@ -167,7 +167,7 @@ export function TextReaderScreen({ navigation }: Props): React.JSX.Element {
       // PRE-AUDIO: Zero latency feedback to mask processing time
       if (!isVoiceActive) {
         const preAudioTxt = language === "hindi" ? "मैं टेक्स्ट पढ़ रही हूँ..." : "Reading text...";
-        Speech.speak(preAudioTxt, { language: language === "hindi" ? "hi-IN" : "en-US" });
+        Speech.speak(preAudioTxt, { rate: 0.85, language: language === "hindi" ? "hi-IN" : "en-US" });
       }
 
       const ocrResult = await TextRecognition.recognize(photo.uri);

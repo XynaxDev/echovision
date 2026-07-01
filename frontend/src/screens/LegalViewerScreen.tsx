@@ -53,6 +53,7 @@ export function LegalViewerScreen({ route, navigation }: Props) {
       const cleanText = content.replace(/\*\*/g, "").replace(/\*/g, "").replace(/•/g, " ");
       Speech.speak(cleanText, {
         language: language === "hindi" ? "hi-IN" : "en-US",
+        rate: 0.85,
         onDone: () => setIsSpeaking(false),
         onStopped: () => setIsSpeaking(false),
         onError: () => setIsSpeaking(false),

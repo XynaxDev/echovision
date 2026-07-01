@@ -165,7 +165,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       Speech.speak(text, {
           language: lang,
           pitch: 1.0,
-          rate: 1.1,
+          rate: 0.85,
           onDone: () => {
               isPlaying.current = false;
               processAudioQueue();

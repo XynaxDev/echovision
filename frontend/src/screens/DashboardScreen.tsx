@@ -154,7 +154,7 @@ export function DashboardScreen({ navigation }: Props): React.JSX.Element {
   const speak = (text: string) => {
     if (isVoiceActive) return;
     Speech.stop();
-    Speech.speak(text, { language: language === "hindi" ? "hi-IN" : "en-US", pitch: 1.0, rate: 1.0 });
+    Speech.speak(text, { language: language === "hindi" ? "hi-IN" : "en-US", pitch: 1.0, rate: 0.85 });
   };
 
   const interactItem = (item: QuadrantItem) => {
