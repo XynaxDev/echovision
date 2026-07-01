@@ -187,8 +187,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   // ── Frame Interception Action Router ──
   const handleNativeAction = async (command: string) => {
     console.log("⚡ NATIVE ACTION TRIGGER:", command);
-    Vibration.vibrate(100);
     const upperCommand = command.toUpperCase();
+    if (!upperCommand.includes("INTERRUPT_TTS")) {
+        Vibration.vibrate(100);
+    }
     const ctx = contextualCommandsRef.current;
     if (upperCommand.includes("DARK_MODE")) setThemeMode("dark");
     else if (upperCommand.includes("LIGHT_MODE")) setThemeMode("light");
