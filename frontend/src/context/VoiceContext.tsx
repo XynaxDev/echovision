@@ -403,7 +403,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     // Fallback if user never explicitly clicked 'Update Location' in settings
     if (!currentLat || !currentLon) {
         try {
-            const loc = await Location.getLastKnownPositionAsync();
+            // Prevent blocking the connection for more than 500ms
+            const timeoutPromise = new Promise<null>(resolve => setTimeout(() => resolve(null), 500));
+            const loc = await Promise.race([Location.getLastKnownPositionAsync(), timeoutPromise]);
             if (loc) {
                 currentLat = loc.coords.latitude.toString();
                 currentLon = loc.coords.longitude.toString();
