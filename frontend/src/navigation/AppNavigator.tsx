@@ -41,7 +41,7 @@ export type RootStackParamList = {
   SceneScanner: undefined;
   TextReader: undefined;
   SOSConfirmation: { source: "voice" | "manual" };
-  Settings: undefined;
+  Settings: { section?: "profile" | "preferences" | "location" | "voice" | "contacts" | "legal" | "logout" } | undefined;
   LegalViewer: { title: string; content: string };
 };
 

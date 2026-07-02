@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import time
+from difflib import SequenceMatcher
 from datetime import datetime
 import pytz
 from urllib.parse import urlencode
@@ -61,13 +62,24 @@ SUPPORTED ACTIONS:
 - Distance to Home: <ACTION: CALCULATE_DISTANCE_HOME>
 - Distance to a place: <ACTION: CALCULATE_DISTANCE_TO|place_name>
 - Settings: <ACTION: SETTINGS>
+- Settings Profile: <ACTION: SETTINGS_PROFILE>
+- Settings Preferences: <ACTION: SETTINGS_PREFERENCES>
+- Settings Location: <ACTION: SETTINGS_LOCATION>
+- Settings Voice: <ACTION: SETTINGS_VOICE>
+- Settings SOS Contacts: <ACTION: SETTINGS_SOS_CONTACTS>
+- Settings Legal: <ACTION: SETTINGS_LEGAL>
+- Settings Logout: <ACTION: SETTINGS_LOGOUT>
 - Scene Scanner: <ACTION: SCENE_SCANNER>
 - Text Reader: <ACTION: TEXT_READER>
 - SOS: <ACTION: SOS>
 - Confirm SOS: <ACTION: CONFIRM_SOS>
 - Cancel SOS: <ACTION: CANCEL_SOS>
+- System Theme: <ACTION: THEME_SYSTEM>
 - Dark Mode: <ACTION: DARK_MODE>
 - Light Mode: <ACTION: LIGHT_MODE>
+- Small Text: <ACTION: TEXT_SIZE_SMALL>
+- Medium Text: <ACTION: TEXT_SIZE_MEDIUM>
+- Large Text: <ACTION: TEXT_SIZE_LARGE>
 - Haptics On: <ACTION: HAPTICS_ON>
 - Haptics Off: <ACTION: HAPTICS_OFF>
 - TalkBack On: <ACTION: TALKBACK_ON>
@@ -94,9 +106,9 @@ GROUNDING AND SAFETY:
 - Never use <ACTION: GO_BACK> for "band karo", "close it", "turn off", or "stop" unless the user explicitly says back, previous screen, go back, or names a page/screen to leave.
 
 SETTINGS AND APP KNOWLEDGE:
-- Settings contains language, theme, text size, haptics, TalkBack feedback, current location update, profile name/home address, SOS contacts, legal pages, and logout.
-- You can directly change language, theme, haptics, TalkBack, update location, open Settings, and open legal pages.
-- For profile edits, home address edits, adding/removing SOS contacts, text size selection, or logout, open Settings and briefly tell the user what to change there. Do not pretend to type, save, delete, or log out unless a supported action exists.
+- Settings contains profile name, profile photo, home address, language, theme, text size, haptics, current location update, TalkBack feedback, SOS contacts, legal pages, and logout.
+- You can directly change language, theme, text size, haptics, TalkBack, update location, open Settings sections, and open legal pages.
+- For profile edits, home address edits, adding/removing SOS contacts, and logout, open the matching Settings section and briefly tell the user what to do there. Do not pretend to type, save, delete, or log out.
 - Legal pages available by voice are About EchoVision, Privacy Policy, Terms of Service, Cookie Policy, and End-User License. You may summarize what each page is for, but do not quote long policy text unless the page content is open in the app.
 
 DISTANCE QUERIES:
@@ -222,11 +234,20 @@ async def voice_stream_endpoint(
                             log_voice_event("client_event", text_hash=hashlib.sha256(data["text"].encode()).hexdigest()[:12])
                             await llm_trigger_queue.put(data["text"])
                         elif data.get("type") == "update_context":
-                            nonlocal active_page
+                            nonlocal active_page, current_location, current_lat, current_lon, weather_context, weather_last_fetched
                             if data.get("active_page"):
                                 active_page = data.get("active_page")
                                 logger.info(f"🔄 Context Updated: active_page = {active_page}")
-                                log_voice_event("context_updated")
+                            if data.get("current_location") is not None:
+                                current_location = data.get("current_location") or current_location
+                            if data.get("current_lat") is not None:
+                                current_lat = data.get("current_lat") or current_lat
+                            if data.get("current_lon") is not None:
+                                current_lon = data.get("current_lon") or current_lon
+                            if data.get("current_lat") or data.get("current_lon"):
+                                weather_context = ""
+                                weather_last_fetched = 0
+                            log_voice_event("context_updated")
                     except Exception as e:
                         logger.error(f"Error parsing text frame: {e}")
         except (WebSocketDisconnect, RuntimeError):
@@ -270,6 +291,50 @@ async def voice_stream_endpoint(
         except Exception:
             pass
         return
+
+    def has_devanagari_text(text: str) -> bool:
+        return bool(re.search(r"[\u0900-\u097F]", text))
+
+    async def normalize_stt_transcript(transcript: str) -> str:
+        if selected_language != "hindi":
+            return transcript
+        if has_devanagari_text(transcript) or not re.search(r"[A-Za-z]", transcript):
+            return transcript
+
+        system_text = (
+            "Convert this speech transcript into natural Devanagari Hindi for a voice assistant. "
+            "It may be Romanized Hindi, misspelled Hindi, or a short app command. "
+            "Preserve the user's intent exactly, do not answer it, do not add facts, "
+            "do not add punctuation beyond what is natural, and output only the converted transcript."
+        )
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as normalize_client:
+                result = await normalize_client.post(
+                    "https://integrate.api.nvidia.com/v1/chat/completions",
+                    json={
+                        "model": "meta/llama-3.1-8b-instruct",
+                        "messages": [
+                            {"role": "system", "content": system_text},
+                            {"role": "user", "content": transcript},
+                        ],
+                        "stream": False,
+                        "temperature": 0.1,
+                        "max_tokens": 80,
+                    },
+                    headers={"Authorization": f"Bearer {nvidia_key}"},
+                )
+            result.raise_for_status()
+            normalized = result.json()["choices"][0]["message"]["content"].strip()
+            if normalized:
+                log_voice_event(
+                    "stt_transcript_normalized",
+                    original_hash=hashlib.sha256(transcript.encode()).hexdigest()[:12],
+                    normalized_hash=hashlib.sha256(normalized.encode()).hexdigest()[:12],
+                )
+                return normalized
+        except Exception as normalize_error:
+            log_voice_event("stt_transcript_normalize_failed", error=type(normalize_error).__name__)
+        return transcript
 
     async def audio_ingest_worker():
         has_interrupted_current_turn = False
@@ -316,7 +381,8 @@ async def voice_stream_endpoint(
                                     except asyncio.QueueEmpty:
                                         break
                                         
-                            await llm_trigger_queue.put(transcript)
+                            normalized_transcript = await normalize_stt_transcript(transcript)
+                            await llm_trigger_queue.put(normalized_transcript)
             except websockets.exceptions.ConnectionClosed as exc:
                 log_voice_event("deepgram_listen_closed", code=getattr(exc, "code", None))
                 try:
@@ -427,7 +493,8 @@ async def voice_stream_endpoint(
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
                 f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
                 f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
-                f"SETTINGS ACTIONS: You can directly open Settings, change language, switch dark/light theme, toggle haptics, toggle TalkBack, update current location, and open legal pages. For profile, home address, SOS contact edits, text size selection, and logout, open Settings and guide briefly.\n"
+                f"SETTINGS ACTIONS: You can directly open Settings sections, change language, switch system/light/dark theme, set small/medium/large text size, toggle haptics, toggle TalkBack, refresh current location, and open legal pages. For profile, home address, SOS contact edits, and logout, open the matching Settings section and guide briefly.\n"
+                f"SETTINGS SECTION ROUTING: Use <ACTION: SETTINGS_PROFILE> for profile/name/photo/home address, <ACTION: SETTINGS_PREFERENCES> for language/theme/text size/haptics, <ACTION: SETTINGS_LOCATION> for current location, <ACTION: SETTINGS_VOICE> for TalkBack or voice feedback, <ACTION: SETTINGS_SOS_CONTACTS> for SOS contacts, <ACTION: SETTINGS_LEGAL> for legal list, and <ACTION: SETTINGS_LOGOUT> for logout.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
                 f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
                 f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in the selected language, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
@@ -442,7 +509,8 @@ async def voice_stream_endpoint(
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
                 f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
                 f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
-                f"SETTINGS ACTIONS: You can directly open Settings, change language, switch dark/light theme, toggle haptics, toggle TalkBack, update current location, and open legal pages. For profile, home address, SOS contact edits, text size selection, and logout, open Settings and guide briefly.\n"
+                f"SETTINGS ACTIONS: You can directly open Settings sections, change language, switch system/light/dark theme, set small/medium/large text size, toggle haptics, toggle TalkBack, refresh current location, and open legal pages. For profile, home address, SOS contact edits, and logout, open the matching Settings section and guide briefly.\n"
+                f"SETTINGS SECTION ROUTING: Use <ACTION: SETTINGS_PROFILE> for profile/name/photo/home address, <ACTION: SETTINGS_PREFERENCES> for language/theme/text size/haptics, <ACTION: SETTINGS_LOCATION> for current location, <ACTION: SETTINGS_VOICE> for TalkBack or voice feedback, <ACTION: SETTINGS_SOS_CONTACTS> for SOS contacts, <ACTION: SETTINGS_LEGAL> for legal list, and <ACTION: SETTINGS_LOGOUT> for logout.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
                 f"CLARIFICATION: If speech is broken, random, or missing required details, ask one short clarification. If the user says scar, score, or scale in an app-opening context, treat it as Scene Scanner.\n"
                 f"ACTION ANNOUNCEMENT: Every action tag must be followed by a brief spoken confirmation in English, except <IGNORE>. Never execute silently, never repeat the same sentence twice, and never mention raw tags unless executing them.\n"
@@ -466,6 +534,7 @@ async def voice_stream_endpoint(
                 photo_keywords = ["photo", "फोटो", "capture", "click", "तस्वीर", "तसवीर", "pic", "picture", "छवि"]
                 query_wants_photo = any(kw in query.lower() for kw in photo_keywords)
                 is_first_chunk = True
+                suppress_llm_speech = False
 
                 def localized_text(english_text: str, hindi_text: str) -> str:
                     if selected_language == "english":
@@ -503,54 +572,352 @@ async def voice_stream_endpoint(
                     idx = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % len(options)
                     return options[idx]
 
-                def unclear_close_command(text: str) -> bool:
+                def intent_tokens(text: str) -> list[str]:
+                    return re.findall(r"[a-z]+|[\u0900-\u097F]+", text.lower())
+
+                def roman_skeleton(token: str) -> str:
+                    return re.sub(r"[aeiou]", "", token.lower())
+
+                def fuzzy_token_match(tokens: list[str], targets: list[str], threshold: float = 0.78) -> bool:
+                    for token in tokens:
+                        if not re.fullmatch(r"[a-z]+", token) or len(token) < 3:
+                            continue
+                        for target in targets:
+                            if token == target or target in token or token in target:
+                                return True
+                            if SequenceMatcher(None, token, target).ratio() >= threshold:
+                                return True
+                    return False
+
+                def contains_any(text: str, terms: list[str]) -> bool:
                     lowered = text.lower()
-                    has_close_intent = any(
-                        term in lowered or term in text
-                        for term in [
-                            "band",
-                            "close",
-                            "turn off",
-                            "shut",
-                            "stop",
-                            "बंद",
-                            "रोक",
-                            "रोको",
-                        ]
+                    return any(term in lowered or term in text for term in terms)
+
+                def has_close_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    skeletons = {roman_skeleton(token) for token in tokens if re.fullmatch(r"[a-z]+", token)}
+                    return (
+                        contains_any(text, ["turn off", "switch off", "close", "shut", "stop", "बंद", "रोक"])
+                        or "off" in tokens
+                        or roman_skeleton("band") in skeletons
                     )
-                    if not has_close_intent:
+
+                def has_open_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    skeletons = {roman_skeleton(token) for token in tokens if re.fullmatch(r"[a-z]+", token)}
+                    return (
+                        contains_any(text, ["turn on", "switch on", "चालू", "जलाओ", "जला"])
+                        or any(token in tokens for token in ["on", "open", "start"])
+                        or bool({roman_skeleton("chalu"), roman_skeleton("chalao")} & skeletons)
+                    )
+
+                def has_flashlight_target(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return (
+                        fuzzy_token_match(tokens, ["flashlight", "flash", "torch", "light"])
+                        or contains_any(text, ["फ़्लैश", "फ्लैश", "लाइट", "टॉर्च"])
+                    )
+
+                def has_known_close_target(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    if has_flashlight_target(text):
+                        return True
+                    if fuzzy_token_match(
+                        tokens,
+                        [
+                            "assistant",
+                            "voice",
+                            "audio",
+                            "reading",
+                            "reader",
+                            "scanner",
+                            "camera",
+                            "sos",
+                            "scene",
+                            "back",
+                            "previous",
+                        ],
+                    ):
+                        return True
+                    return contains_any(
+                        text,
+                        [
+                            "असिस्टेंट",
+                            "आवाज़",
+                            "ऑडियो",
+                            "रीडर",
+                            "स्कैनर",
+                            "कैमरा",
+                            "पीछे",
+                            "पिछली",
+                        ],
+                    )
+
+                def unclear_close_command(text: str) -> bool:
+                    return has_close_intent(text) and not has_known_close_target(text)
+
+                def flashlight_requested_state(text: str) -> str | None:
+                    if not has_flashlight_target(text):
+                        return None
+                    if has_close_intent(text):
+                        return "off"
+                    if has_open_intent(text):
+                        return "on"
+                    return "unknown"
+
+                def flashlight_ack_text(state: str, text: str) -> str:
+                    if selected_language == "english":
+                        options = {
+                            "on": [
+                                "Turning the flashlight on.",
+                                "Okay, turning on the flashlight.",
+                                "I am turning the flashlight on now.",
+                            ],
+                            "off": [
+                                "Turning the flashlight off.",
+                                "Okay, turning off the flashlight.",
+                                "I am turning the flashlight off now.",
+                            ],
+                        }
+                    else:
+                        options = {
+                            "on": [
+                                "फ़्लैशलाइट चालू कर रही हूँ।",
+                                "ठीक है, फ़्लैशलाइट चालू कर रही हूँ।",
+                                "मैं अभी फ़्लैशलाइट चालू कर रही हूँ।",
+                            ],
+                            "off": [
+                                "फ़्लैशलाइट बंद कर रही हूँ।",
+                                "ठीक है, फ़्लैशलाइट बंद कर रही हूँ।",
+                                "मैं अभी फ़्लैशलाइट बंद कर रही हूँ।",
+                            ],
+                        }
+                    choices = options[state]
+                    idx = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % len(choices)
+                    return choices[idx]
+
+                async def send_direct_action(command: str) -> bool:
+                    try:
+                        await websocket.send_text(json.dumps({"type": "action", "command": command}))
+                        log_voice_event("action_sent", command=command, source="deterministic_guard")
+                        return True
+                    except Exception as send_err:
+                        logger.warning(f"Could not send deterministic action to websocket: {send_err}")
+                        log_voice_event(
+                            "action_send_failed",
+                            command=command,
+                            source="deterministic_guard",
+                            error=type(send_err).__name__,
+                        )
                         return False
 
-                    known_targets = [
-                        "flash",
-                        "flashlight",
-                        "torch",
-                        "light",
-                        "assistant",
-                        "voice",
-                        "audio",
-                        "reading",
-                        "reader",
-                        "scanner",
-                        "camera",
-                        "sos",
-                        "text reader",
-                        "scene",
-                        "back",
-                        "previous",
-                        "फ्लैश",
-                        "लाइट",
-                        "टॉर्च",
-                        "असिस्टेंट",
-                        "आवाज़",
-                        "ऑडियो",
-                        "रीडर",
-                        "स्कैनर",
-                        "कैमरा",
-                        "पीछे",
-                        "पिछली",
-                    ]
-                    return not any(term in lowered or term in text for term in known_targets)
+                def has_back_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return (
+                        contains_any(text, ["go back", "previous", "back", "पीछे", "पिछली"])
+                        or (
+                            has_close_intent(text)
+                            and contains_any(text, ["screen", "page", "settings", "स्क्रीन", "पेज", "Settings"])
+                        )
+                        or fuzzy_token_match(tokens, ["back", "previous"])
+                    )
+
+                def has_assistant_target(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["assistant", "voice", "listening", "audio"]) or contains_any(
+                        text,
+                        ["असिस्टेंट", "आवाज़", "सुनना", "वॉइस"],
+                    )
+
+                def has_sos_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["sos", "emergency", "help", "ambulance", "police"]) or contains_any(
+                        text,
+                        ["मदद", "आपात", "आपातकाल", "एम्बुलेंस", "पुलिस"],
+                    )
+
+                def has_language_intent(text: str, command: str) -> bool:
+                    tokens = intent_tokens(text)
+                    requested_language = "english" if "ENGLISH" in command.upper() else "hindi"
+                    language_named = requested_language in tokens or (
+                        requested_language == "hindi" and contains_any(text, ["हिंदी", "हिन्दी"])
+                    )
+                    return language_named and (
+                        fuzzy_token_match(tokens, ["language", "speak", "reply", "answer"])
+                        or contains_any(text, ["भाषा", "बोल", "जवाब"])
+                    )
+
+                def has_settings_intent(text: str, command: str) -> bool:
+                    tokens = intent_tokens(text)
+                    upper_command = command.upper()
+                    section_targets = {
+                        "SETTINGS_PROFILE": ["profile", "name", "photo", "address", "home"],
+                        "SETTINGS_PREFERENCES": ["preferences", "language", "theme", "text", "font", "haptics"],
+                        "SETTINGS_LOCATION": ["location", "current"],
+                        "SETTINGS_VOICE": ["voice", "talkback", "feedback"],
+                        "SETTINGS_SOS_CONTACTS": ["sos", "contact", "emergency"],
+                        "SETTINGS_LEGAL": ["legal", "privacy", "terms", "cookie", "license", "about"],
+                        "SETTINGS_LOGOUT": ["logout", "signout", "sign"],
+                    }
+                    if upper_command == "SETTINGS":
+                        return fuzzy_token_match(tokens, ["settings", "preference"]) or contains_any(text, ["Settings", "सेटिंग"])
+                    for action_name, targets in section_targets.items():
+                        if action_name in upper_command:
+                            return fuzzy_token_match(tokens, targets + ["settings"]) or contains_any(
+                                text,
+                                ["Settings", "सेटिंग", "प्रोफाइल", "लोकेशन", "कानूनी", "संपर्क", "लॉग आउट"],
+                            )
+                    return False
+
+                def has_theme_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["theme", "mode", "screen", "display"]) or contains_any(
+                        text,
+                        ["dark mode", "light mode", "system theme", "थीम", "डार्क", "लाइट"],
+                    )
+
+                def has_text_size_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["text", "font", "size", "small", "medium", "large"]) or contains_any(
+                        text,
+                        ["टेक्स्ट", "फ़ॉन्ट", "फॉन्ट", "छोटा", "बड़ा", "मध्यम"],
+                    )
+
+                def has_haptics_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["haptic", "haptics", "vibration", "vibrate"]) or contains_any(
+                        text,
+                        ["वाइब्रेशन", "कंपन", "हैप्टिक"],
+                    )
+
+                def has_talkback_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return fuzzy_token_match(tokens, ["talkback", "feedback", "voice"]) or contains_any(
+                        text,
+                        ["टॉकबैक", "फीडबैक", "आवाज़"],
+                    )
+
+                def has_feature_intent(text: str, command: str) -> bool:
+                    tokens = intent_tokens(text)
+                    upper_command = command.upper()
+                    if "SCENE_SCANNER" in upper_command:
+                        return query_wants_photo or fuzzy_token_match(tokens, ["scene", "scanner", "camera", "scan"]) or contains_any(text, ["स्कैन", "कैमरा", "फोटो"])
+                    if "TEXT_READER" in upper_command:
+                        return fuzzy_token_match(tokens, ["text", "reader", "read", "ocr"]) or contains_any(text, ["टेक्स्ट", "पढ़", "रीडर"])
+                    return False
+
+                def has_location_update_intent(text: str) -> bool:
+                    tokens = intent_tokens(text)
+                    return (
+                        fuzzy_token_match(tokens, ["location", "current", "update", "refresh"])
+                        or contains_any(text, ["लोकेशन", "स्थान", "अपडेट"])
+                    )
+
+                def legal_action_matches_query(text: str, command: str) -> bool:
+                    tokens = intent_tokens(text)
+                    upper_command = command.upper()
+                    legal_targets = {
+                        "LEGAL_ABOUT": ["about", "app", "echovision"],
+                        "LEGAL_PRIVACY": ["privacy", "policy"],
+                        "LEGAL_TERMS": ["terms", "service"],
+                        "LEGAL_COOKIE": ["cookie", "cookies"],
+                        "LEGAL_LICENSE": ["license", "licence"],
+                    }
+                    for action_name, targets in legal_targets.items():
+                        if action_name in upper_command:
+                            return fuzzy_token_match(tokens, targets + ["legal"]) or contains_any(
+                                text,
+                                ["कानूनी", "प्राइवेसी", "शर्तें", "कुकी", "लाइसेंस", "बारे"],
+                            )
+                    return False
+
+                def action_safety_gate(command: str, user_text: str) -> tuple[bool, str | None, list[str]]:
+                    upper_command = command.upper()
+                    camera_pages = ["Scene Scanner", "Text Reader"]
+
+                    if upper_command == "INTERRUPT_TTS":
+                        return True, None, []
+
+                    if "FLASHLIGHT" in upper_command:
+                        if active_page in camera_pages:
+                            return True, None, []
+                        return False, localized_text(
+                            "The flashlight is available on the scanner or reader camera screen.",
+                            "फ़्लैशलाइट स्कैनर या रीडर कैमरा स्क्रीन पर उपलब्ध है।",
+                        ), []
+
+                    if upper_command == "CAPTURE":
+                        if active_page in camera_pages:
+                            return True, None, []
+                        if query_wants_photo:
+                            return True, None, ["SCENE_SCANNER"]
+                        return False, localized_text(
+                            "Please open the scanner or reader camera first.",
+                            "कृपया पहले scanner या reader camera खोलें।",
+                        ), []
+
+                    if upper_command == "GO_BACK":
+                        if has_back_intent(user_text):
+                            return True, None, []
+                        return False, clarification_text(user_text), []
+
+                    if upper_command == "TURN_OFF_ASSISTANT":
+                        if has_close_intent(user_text) and has_assistant_target(user_text):
+                            return True, None, []
+                        return False, clarification_text(user_text), []
+
+                    if upper_command == "SOS":
+                        if has_sos_intent(user_text):
+                            return True, None, []
+                        return False, localized_text(
+                            "I did not hear an emergency request clearly. Please say SOS if you need emergency help.",
+                            "मुझे emergency request साफ़ नहीं सुनाई दी। अगर मदद चाहिए तो कृपया SOS बोलें।",
+                        ), []
+
+                    if upper_command in {"CONFIRM_SOS", "CANCEL_SOS"}:
+                        if active_page == "SOSConfirmation":
+                            return True, None, []
+                        return False, localized_text(
+                            "There is no SOS confirmation pending right now.",
+                            "अभी कोई SOS confirmation pending नहीं है।",
+                        ), []
+
+                    if upper_command.startswith("CHANGE_LANGUAGE"):
+                        if has_language_intent(user_text, command):
+                            return True, None, []
+                        return False, localized_text(
+                            "Which language should I switch to, English or Hindi?",
+                            "आप कौन सी भाषा चाहती हैं, English या Hindi?",
+                        ), []
+
+                    if upper_command in {"THEME_SYSTEM", "DARK_MODE", "LIGHT_MODE"}:
+                        return (True, None, []) if has_theme_intent(user_text) else (False, clarification_text(user_text), [])
+
+                    if upper_command in {"TEXT_SIZE_SMALL", "TEXT_SIZE_MEDIUM", "TEXT_SIZE_LARGE"}:
+                        return (True, None, []) if has_text_size_intent(user_text) else (False, clarification_text(user_text), [])
+
+                    if upper_command in {"HAPTICS_ON", "HAPTICS_OFF"}:
+                        return (True, None, []) if has_haptics_intent(user_text) else (False, clarification_text(user_text), [])
+
+                    if upper_command in {"TALKBACK_ON", "TALKBACK_OFF"}:
+                        return (True, None, []) if has_talkback_intent(user_text) else (False, clarification_text(user_text), [])
+
+                    if upper_command == "UPDATE_LOCATION":
+                        return (True, None, []) if has_location_update_intent(user_text) else (False, clarification_text(user_text), [])
+
+                    if upper_command.startswith("LEGAL_"):
+                        return (True, None, []) if legal_action_matches_query(user_text, command) else (False, clarification_text(user_text), [])
+
+                    if upper_command.startswith("SETTINGS"):
+                        return (True, None, []) if has_settings_intent(user_text, command) else (False, clarification_text(user_text), [])
+
+                    if upper_command in {"SCENE_SCANNER", "TEXT_READER"}:
+                        return (True, None, []) if has_feature_intent(user_text, command) else (False, clarification_text(user_text), [])
+
+                    return False, localized_text(
+                        "I cannot do that action yet.",
+                        "मैं अभी यह action नहीं कर सकती।",
+                    ), []
 
                 def has_devanagari(text: str) -> bool:
                     return bool(re.search(r"[\u0900-\u097F]", text))
@@ -625,6 +992,39 @@ async def voice_stream_endpoint(
                     )
                     return
 
+                flashlight_state = flashlight_requested_state(query)
+                if flashlight_state in {"on", "off"}:
+                    if active_page in ["Scene Scanner", "Text Reader"]:
+                        command = "FLASHLIGHT_ON" if flashlight_state == "on" else "FLASHLIGHT_OFF"
+                        await send_direct_action(command)
+                        await tts_queue.put(flashlight_ack_text(flashlight_state, query))
+                        log_voice_event(
+                            "direct_flashlight_command",
+                            command=command,
+                            transcript_hash=hashlib.sha256(query.encode()).hexdigest()[:12],
+                        )
+                    else:
+                        await tts_queue.put(localized_text(
+                            "The flashlight is available on the scanner or reader camera screen.",
+                            "फ़्लैशलाइट स्कैनर या रीडर कैमरा स्क्रीन पर उपलब्ध है।",
+                        ))
+                        log_voice_event(
+                            "direct_flashlight_blocked",
+                            active_page=active_page,
+                            transcript_hash=hashlib.sha256(query.encode()).hexdigest()[:12],
+                        )
+                    return
+                if flashlight_state == "unknown":
+                    await tts_queue.put(localized_text(
+                        "Should I turn the flashlight on or off?",
+                        "क्या मैं फ़्लैशलाइट चालू करूँ या बंद करूँ?",
+                    ))
+                    log_voice_event(
+                        "clarified_flashlight_state",
+                        transcript_hash=hashlib.sha256(query.encode()).hexdigest()[:12],
+                    )
+                    return
+
                 if user_asked_weather(query) and current_lat and current_lon and (
                     not weather_context or time.time() - weather_last_fetched > 180
                 ):
@@ -679,11 +1079,11 @@ async def voice_stream_endpoint(
                                 data_str = chunk[6:]
                                 if data_str == "[DONE]":
                                     final_text = buffer.strip()
-                                    if final_text and "<IGNORE>" not in final_text: 
+                                    if final_text and "<IGNORE>" not in final_text and not suppress_llm_speech:
                                         if "<ACTION" not in final_text:
                                             await tts_queue.put(await enforce_spoken_language(final_text))
                                             
-                                    if full_response.strip() and "<IGNORE>" not in full_response:
+                                    if full_response.strip() and "<IGNORE>" not in full_response and not suppress_llm_speech:
                                         chat_history.append({"role": "user", "content": query})
                                         chat_history.append({"role": "assistant", "content": full_response.strip()})
                                         
@@ -748,19 +1148,42 @@ async def voice_stream_endpoint(
                                                     "दूरी निकालने में त्रुटि हुई।",
                                                 ))
                                     else:
-                                        try:
-                                            await websocket.send_text(json.dumps({"type": "action", "command": command}))
-                                            log_voice_event("action_sent", command=command)
-                                            # Track page changes for context
-                                            if "SCENE_SCANNER" in command:
-                                                active_page = "Scene Scanner"
-                                            elif "TEXT_READER" in command:
-                                                active_page = "Text Reader"
-                                            elif "GO_BACK" in command:
-                                                active_page = "Home"
-                                        except Exception as send_err:
-                                            logger.warning(f"Could not send action to websocket: {send_err}")
-                                            log_voice_event("action_send_failed", command=command, error=type(send_err).__name__)
+                                        allowed, corrective_text, prerequisite_actions = action_safety_gate(command, query)
+                                        if not allowed:
+                                            suppress_llm_speech = True
+                                            log_voice_event("action_blocked", command=command)
+                                            if corrective_text:
+                                                await tts_queue.put(await enforce_spoken_language(corrective_text))
+                                        else:
+                                            try:
+                                                for prerequisite in prerequisite_actions:
+                                                    await websocket.send_text(json.dumps({"type": "action", "command": prerequisite}))
+                                                    log_voice_event("action_sent", command=prerequisite, source="safety_gate_prerequisite")
+                                                    if "SCENE_SCANNER" in prerequisite:
+                                                        active_page = "Scene Scanner"
+                                                    elif "TEXT_READER" in prerequisite:
+                                                        active_page = "Text Reader"
+
+                                                await websocket.send_text(json.dumps({"type": "action", "command": command}))
+                                                log_voice_event("action_sent", command=command)
+                                                # Track page changes for context
+                                                if "SCENE_SCANNER" in command:
+                                                    active_page = "Scene Scanner"
+                                                elif "TEXT_READER" in command:
+                                                    active_page = "Text Reader"
+                                                elif command == "SOS":
+                                                    active_page = "SOSConfirmation"
+                                                elif command == "CANCEL_SOS":
+                                                    active_page = "Home"
+                                                elif command.startswith("SETTINGS"):
+                                                    active_page = "Settings"
+                                                elif command.startswith("LEGAL_"):
+                                                    active_page = "LegalViewer"
+                                                elif "GO_BACK" in command:
+                                                    active_page = "Home"
+                                            except Exception as send_err:
+                                                logger.warning(f"Could not send action to websocket: {send_err}")
+                                                log_voice_event("action_send_failed", command=command, error=type(send_err).__name__)
                                     
                                     action_match = re.search(r"<ACTION:\s*([^>]+)>", buffer)
 
@@ -794,7 +1217,7 @@ async def voice_stream_endpoint(
                                             sentence = sentence[:half].strip()
                                         
                                         # Only send to TTS if it contains actual words (not just punctuation)
-                                        if clean_check and "<IGNORE>" not in sentence:
+                                        if clean_check and "<IGNORE>" not in sentence and not suppress_llm_speech:
                                             # Ensure we aren't sending a partial action tag
                                             if "<ACTION" not in sentence:
                                                 is_first_chunk = False

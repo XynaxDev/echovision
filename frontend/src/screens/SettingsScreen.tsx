@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { triggerHaptic, setHapticsEnabled } from "../utils/haptics";
 import {
   ActivityIndicator,
@@ -235,10 +235,26 @@ function ConfirmationModal({ visible, title, description, confirmText, cancelTex
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function SettingsScreen({ navigation }: any): React.JSX.Element {
+export function SettingsScreen({ navigation, route }: any): React.JSX.Element {
   const { colors, isDark, setThemeMode } = useAppTheme();
   const { language, setLanguage, t } = useLanguage();
   const { isVoiceActive, toggleVoice } = useVoiceContext();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const sectionOffsetsRef = useRef<Record<string, number>>({});
+  const requestedSection = route?.params?.section;
+
+  const rememberSection = (section: string) => (event: any) => {
+    sectionOffsetsRef.current[section] = event.nativeEvent.layout.y;
+  };
+
+  useEffect(() => {
+    if (!requestedSection) return;
+    const timer = setTimeout(() => {
+      const y = sectionOffsetsRef.current[requestedSection] ?? 0;
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [requestedSection]);
   
   const announce = (msgEn: string, msgHi: string) => {
     if (!talkbackOn) return;
@@ -529,6 +545,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <GridPattern color={colors.textSecondary} opacity={isDark ? 0.08 : 0.05} spacing={24} />
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="always"
         >
@@ -549,7 +566,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
           </View>
 
           {/* Profile Section */}
-          <View style={styles.profileSection}>
+          <View style={styles.profileSection} onLayout={rememberSection("profile")}>
             <SettingCard>
               <View style={styles.profileInfo}>
                 {isEditingProfile ? (
@@ -656,7 +673,9 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
 
           <View style={styles.listContainer}>
             
-            <SectionHeader title={t("preferences")} />
+            <View onLayout={rememberSection("preferences")}>
+              <SectionHeader title={t("preferences")} />
+            </View>
             <SettingCard>
               <SettingRow 
                 title={t("language")} 
@@ -691,7 +710,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
                 rightElement={<ModernSwitch value={hapticsOn} onValueChange={toggleHaptics} />}
               />
               <Divider />
-              <View style={styles.locationWrapperRow}>
+              <View style={styles.locationWrapperRow} onLayout={rememberSection("location")}>
                 <View style={styles.locationLeftRow}>
                   <View style={[styles.rowIconContainer, { backgroundColor: "#FFB300" }]}>
                     <Feather name="map-pin" size={16} color="#FFFFFF" />
@@ -723,7 +742,9 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
             </SettingCard>
             
             <View style={{ marginTop: 24 }} />
-            <SectionHeader title={language === "hindi" ? "आवाज़ (VOICE)" : "VOICE"} />
+            <View onLayout={rememberSection("voice")}>
+              <SectionHeader title={language === "hindi" ? "आवाज़ (VOICE)" : "VOICE"} />
+            </View>
             <SettingCard>
               <SettingRow 
                 title={language === "hindi" ? "टॉकबैक फीडबैक" : "TalkBack Feedback"} 
@@ -734,7 +755,9 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
             </SettingCard>
             
             <View style={{ marginTop: 24 }} />
-            <SectionHeader title={t("emergency_contact")} />
+            <View onLayout={rememberSection("contacts")}>
+              <SectionHeader title={t("emergency_contact")} />
+            </View>
 
             <SettingCard>
               {contacts.map((contact, idx) => (
@@ -792,7 +815,9 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
             </SettingCard>
 
             <View style={{ marginTop: 24 }} />
-            <SectionHeader title={language === "hindi" ? "कानूनी और नीतियां" : "LEGAL & POLICIES"} />
+            <View onLayout={rememberSection("legal")}>
+              <SectionHeader title={language === "hindi" ? "कानूनी और नीतियां" : "LEGAL & POLICIES"} />
+            </View>
             <SettingCard>
               <Pressable 
                 onPress={() => {
@@ -886,7 +911,7 @@ export function SettingsScreen({ navigation }: any): React.JSX.Element {
             </SettingCard>
 
             {/* Action Links Below List */}
-            <View style={{ marginTop: 40, alignItems: "center", gap: 16 }}>
+            <View style={{ marginTop: 40, alignItems: "center", gap: 16 }} onLayout={rememberSection("logout")}>
               <Pressable style={[styles.logoutButton, { width: "100%", paddingVertical: 14 }]} onPress={handleLogout}>
                 <Feather name="log-out" size={20} color="#FFF" style={{ marginRight: 8 }} />
                 <AppText style={styles.logoutButtonText}>{t("logout")}</AppText>

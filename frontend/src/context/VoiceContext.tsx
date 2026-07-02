@@ -49,7 +49,7 @@ interface VoiceContextValue {
 const VoiceContext = createContext<VoiceContextValue | undefined>(undefined);
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const { language, setLanguage } = useLanguage();
-  const { setThemeMode } = useAppTheme();
+  const { setThemeMode, setTextSize } = useAppTheme();
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [activePage, setActivePage] = useState<string>("Home");
   const voiceActiveRef = useRef(false);
@@ -198,6 +198,68 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       });
   };
 
+  const openSettingsSection = (section?: string) => {
+    contextualCommandsRef.current = {};
+    navigateDelegateRef.current("Settings", section ? { section } : undefined);
+  };
+
+  const sendLiveContextUpdate = (context: Record<string, string>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "update_context", ...context }));
+    }
+  };
+
+  const refreshCurrentLocationFromVoice = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        playLocalAnnouncement(
+          languageRef.current === "hindi"
+            ? "लोकेशन की अनुमति नहीं मिली। कृपया Settings में अनुमति चालू करें।"
+            : "Location permission is not enabled. Please allow it in Settings.",
+          languageRef.current === "hindi" ? "hi-IN" : "en-US"
+        );
+        openSettingsSection("location");
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const addressInfo = await Location.reverseGeocodeAsync(location.coords);
+      const place = addressInfo?.[0];
+      const address = place
+        ? [place.street, place.district, place.city, place.region].filter(Boolean).join(", ")
+        : "";
+
+      await AsyncStorage.multiSet([
+        ["@echovision_current_lat", location.coords.latitude.toString()],
+        ["@echovision_current_lon", location.coords.longitude.toString()],
+        ["@echovision_current_location", address],
+      ]);
+
+      sendLiveContextUpdate({
+        current_location: address,
+        current_lat: location.coords.latitude.toString(),
+        current_lon: location.coords.longitude.toString(),
+      });
+
+      playLocalAnnouncement(
+        languageRef.current === "hindi"
+          ? "लोकेशन अपडेट हो गई है।"
+          : "Location updated.",
+        languageRef.current === "hindi" ? "hi-IN" : "en-US"
+      );
+    } catch (error) {
+      console.warn("Voice location update failed:", error);
+      playLocalAnnouncement(
+        languageRef.current === "hindi"
+          ? "लोकेशन अपडेट नहीं हो पाई। कृपया थोड़ी देर बाद फिर कोशिश करें।"
+          : "I could not update the location. Please try again in a moment.",
+        languageRef.current === "hindi" ? "hi-IN" : "en-US"
+      );
+      openSettingsSection("location");
+    }
+  };
+
   // ── Frame Interception Action Router ──
   const handleNativeAction = async (command: string) => {
     console.log("⚡ NATIVE ACTION TRIGGER:", command);
@@ -206,12 +268,22 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         Vibration.vibrate(100);
     }
     const ctx = contextualCommandsRef.current;
-    if (upperCommand.includes("DARK_MODE")) setThemeMode("dark");
+    if (upperCommand.includes("THEME_SYSTEM")) setThemeMode("system");
+    else if (upperCommand.includes("DARK_MODE")) setThemeMode("dark");
     else if (upperCommand.includes("LIGHT_MODE")) setThemeMode("light");
-    else if (upperCommand.includes("HAPTICS_OFF")) setHapticsEnabled(false);
-    else if (upperCommand.includes("HAPTICS_ON")) setHapticsEnabled(true);
-    else if (upperCommand.includes("TALKBACK_OFF")) AsyncStorage.setItem("@setting_talkback", "false");
-    else if (upperCommand.includes("TALKBACK_ON")) AsyncStorage.setItem("@setting_talkback", "true");
+    else if (upperCommand.includes("TEXT_SIZE_SMALL")) setTextSize("small");
+    else if (upperCommand.includes("TEXT_SIZE_MEDIUM")) setTextSize("medium");
+    else if (upperCommand.includes("TEXT_SIZE_LARGE")) setTextSize("large");
+    else if (upperCommand.includes("HAPTICS_OFF")) {
+      setHapticsEnabled(false);
+      AsyncStorage.setItem("@setting_haptics", "false").catch(() => {});
+    }
+    else if (upperCommand.includes("HAPTICS_ON")) {
+      setHapticsEnabled(true);
+      AsyncStorage.setItem("@setting_haptics", "true").catch(() => {});
+    }
+    else if (upperCommand.includes("TALKBACK_OFF")) AsyncStorage.setItem("@setting_talkback", "false").catch(() => {});
+    else if (upperCommand.includes("TALKBACK_ON")) AsyncStorage.setItem("@setting_talkback", "true").catch(() => {});
     
     else if (upperCommand.includes("CHANGE_LANGUAGE")) {
       const newLang = upperCommand.includes("ENGLISH") ? "english" : "hindi";
@@ -228,10 +300,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }, 3500);
     }
     else if (upperCommand.includes("UPDATE_LOCATION")) {
-      // Re-fetch the current location via location hook/function if we had one here
-      // But since VoiceContext doesn't have the Location logic, we can route it to Settings 
-      // or just call the utility if we extract it. For now, we will navigate to Settings so they can see it update.
-      navigateDelegateRef.current("Settings");
+      refreshCurrentLocationFromVoice();
     }
     else if (upperCommand.includes("MAP_TARGET")) {
       Linking.openURL(Platform.OS === 'ios' ? 'http://maps.apple.com/' : 'google.navigation:q=');
@@ -374,8 +443,16 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         }
      }
      else if (upperCommand.includes("SETTINGS")) {
-        contextualCommandsRef.current = {};
-        navigateDelegateRef.current("Settings");
+        const section =
+          upperCommand.includes("SETTINGS_PROFILE") ? "profile" :
+          upperCommand.includes("SETTINGS_PREFERENCES") ? "preferences" :
+          upperCommand.includes("SETTINGS_LOCATION") ? "location" :
+          upperCommand.includes("SETTINGS_VOICE") ? "voice" :
+          upperCommand.includes("SETTINGS_SOS_CONTACTS") ? "contacts" :
+          upperCommand.includes("SETTINGS_LEGAL") ? "legal" :
+          upperCommand.includes("SETTINGS_LOGOUT") ? "logout" :
+          undefined;
+        openSettingsSection(section);
     }
     else if (upperCommand === "INTERRUPT_TTS") {
         console.log("⚡ VAD: Interrupting current TTS");
