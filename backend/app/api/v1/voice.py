@@ -198,8 +198,8 @@ async def voice_stream_endpoint(
                         loc_str = f" in {current_location}" if current_location else ""
                         weather_context = (
                             f"\n\n[CONTEXT] CURRENT WEATHER{loc_str}:\n"
-                            f"Temperature: {temp}°C (Feels like {feels_like}°C). Condition: {weather_desc}. Precipitation (Rain): {precip}mm.\n"
-                            f"WEATHER RULE: ONLY mention the weather, temperature, or rain if the user EXPLICITLY asks about it. DO NOT randomly bring up the weather. When answering weather queries, naturally mention the user's city exactly as provided (e.g., '{current_location}'). CRITICAL: NEVER guess, hallucinate, or assume the state, country, or region (like 'Gujarat' or 'India') based on the city name! Only speak the exact location name provided in this context. You MUST strictly state exactly what is provided in this context. If Precipitation is 0mm, do NOT say it is raining."
+                            f"Temperature: {temp}°C (Feels like {feels_like}°C). Condition: {weather_desc}. Rain amount: {precip}mm.\n"
+                            f"WEATHER RULE: ONLY mention the weather, temperature, or rain if the user EXPLICITLY asks about it. DO NOT randomly bring up the weather. Use simple user-facing words like rain instead of technical weather terms unless the user asks about that term. When answering weather queries, naturally mention the user's city exactly as provided (e.g., '{current_location}'). CRITICAL: NEVER guess, hallucinate, or assume the state, country, or region (like 'Gujarat' or 'India') based on the city name! Only speak the exact location name provided in this context. You MUST strictly state exactly what is provided in this context. If rain amount is 0mm, do NOT say it is raining."
                         )
                         weather_last_fetched = time.time()
                         log_voice_event("weather_context_refreshed")
@@ -491,8 +491,9 @@ async def voice_stream_endpoint(
                 f"CONVERSATION STYLE: Be warm, respectful, calm, and human-like. Use 'आप' style respect in Hindi. Do not use Sir, Ma'am, Sahab, or overly formal titles. Do not greet on every turn; greet only when the user greets you or the conversation naturally starts.\n"
                 f"FEMININE PERSONA: The assistant voice is female. In Hindi, always use feminine first-person grammar. Never use masculine first-person forms.\n"
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
-                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
-                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS. Do not use the user's name in SOS confirmation questions.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and distance guidance. Explain these in plain speech when asked, without exposing action tags or technical provider names.\n"
+                f"CAPABILITY ANSWERS: Do not recite the same full feature list every time. Answer based on the user's current page and question, mention only 2 to 4 relevant things, and ask one short useful follow-up when it helps. Never mention internal provider names, model names, API names, socket details, or routing engine names to users.\n"
                 f"SETTINGS ACTIONS: You can directly open Settings sections, change language, switch system/light/dark theme, set small/medium/large text size, toggle haptics, toggle TalkBack, refresh current location, and open legal pages. For profile, home address, SOS contact edits, and logout, open the matching Settings section and guide briefly.\n"
                 f"SETTINGS SECTION ROUTING: Use <ACTION: SETTINGS_PROFILE> for profile/name/photo/home address, <ACTION: SETTINGS_PREFERENCES> for language/theme/text size/haptics, <ACTION: SETTINGS_LOCATION> for current location, <ACTION: SETTINGS_VOICE> for TalkBack or voice feedback, <ACTION: SETTINGS_SOS_CONTACTS> for SOS contacts, <ACTION: SETTINGS_LEGAL> for legal list, and <ACTION: SETTINGS_LOGOUT> for logout.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
@@ -507,8 +508,9 @@ async def voice_stream_endpoint(
                 f"CONVERSATION STYLE: Be warm, respectful, calm, and human-like. Do not use Sir, Ma'am, or overly formal titles. Do not greet on every turn; greet only when the user greets you or the conversation naturally starts.\n"
                 f"LANGUAGE STRICTNESS: The selected language is English. Do not output Hindi or Devanagari in spoken text. Previous non-English examples are behavior references only and must not be copied.\n"
                 f"EMPATHY: If the user sounds worried, confused, sad, or stressed, acknowledge that briefly before helping. For direct commands, execute the command without unnecessary follow-up.\n"
-                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS.\n"
-                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and OSRM distance checks. Explain these in plain speech when asked, without exposing action tags.\n"
+                f"SOS FLOW: If the user asks for SOS or emergency help, output <ACTION: SOS> and ask clearly whether to alert {emergency_contact}. If the user confirms while SOS is pending, output <ACTION: CONFIRM_SOS>. If the user cancels while SOS is pending, output <ACTION: CANCEL_SOS>. Do not confuse assistant shutdown with SOS. Do not use the user's name in SOS confirmation questions.\n"
+                f"CAPABILITIES: EchoVision helps blind and visually impaired users with Scene Scanner for surroundings, Text Reader for written text, SOS emergency alerts, Settings, language, haptics, TalkBack, theme, text size, profile/home address settings, SOS contacts, legal pages, location update, weather/time/location answers from provided context, and distance guidance. Explain these in plain speech when asked, without exposing action tags or technical provider names.\n"
+                f"CAPABILITY ANSWERS: Do not recite the same full feature list every time. Answer based on the user's current page and question, mention only 2 to 4 relevant things, and ask one short useful follow-up when it helps. Never mention internal provider names, model names, API names, socket details, or routing engine names to users.\n"
                 f"SETTINGS ACTIONS: You can directly open Settings sections, change language, switch system/light/dark theme, set small/medium/large text size, toggle haptics, toggle TalkBack, refresh current location, and open legal pages. For profile, home address, SOS contact edits, and logout, open the matching Settings section and guide briefly.\n"
                 f"SETTINGS SECTION ROUTING: Use <ACTION: SETTINGS_PROFILE> for profile/name/photo/home address, <ACTION: SETTINGS_PREFERENCES> for language/theme/text size/haptics, <ACTION: SETTINGS_LOCATION> for current location, <ACTION: SETTINGS_VOICE> for TalkBack or voice feedback, <ACTION: SETTINGS_SOS_CONTACTS> for SOS contacts, <ACTION: SETTINGS_LEGAL> for legal list, and <ACTION: SETTINGS_LOGOUT> for logout.\n"
                 f"OUT OF SCOPE: If asked to open unsupported apps, answer external facts, or perform unsupported work, do not guess an action. Politely say that you cannot do that yet and offer an EchoVision action you can help with.\n"
@@ -613,9 +615,16 @@ async def voice_stream_endpoint(
 
                 def has_flashlight_target(text: str) -> bool:
                     tokens = intent_tokens(text)
+                    token_set = set(tokens)
+                    camera_pages = ["Scene Scanner", "Text Reader"]
                     return (
-                        fuzzy_token_match(tokens, ["flashlight", "flash", "torch", "light"])
-                        or contains_any(text, ["फ़्लैश", "फ्लैश", "लाइट", "टॉर्च"])
+                        fuzzy_token_match(tokens, ["flashlight", "flash", "torch"], threshold=0.82)
+                        or contains_any(text, ["फ़्लैश", "फ्लैश", "टॉर्च"])
+                        or (
+                            ("light" in token_set or "लाइट" in token_set)
+                            and active_page in camera_pages
+                            and (has_open_intent(text) or has_close_intent(text))
+                        )
                     )
 
                 def has_known_close_target(text: str) -> bool:
@@ -664,6 +673,13 @@ async def voice_stream_endpoint(
                     if has_open_intent(text):
                         return "on"
                     return "unknown"
+
+                def has_flashlight_control_request(text: str) -> bool:
+                    return has_flashlight_target(text) and (
+                        has_open_intent(text)
+                        or has_close_intent(text)
+                        or contains_any(text, ["turn", "switch", "control", "toggle", "टॉगल", "करो"])
+                    )
 
                 def flashlight_ack_text(state: str, text: str) -> str:
                     if selected_language == "english":
@@ -1014,7 +1030,7 @@ async def voice_stream_endpoint(
                             transcript_hash=hashlib.sha256(query.encode()).hexdigest()[:12],
                         )
                     return
-                if flashlight_state == "unknown":
+                if flashlight_state == "unknown" and has_flashlight_control_request(query):
                     await tts_queue.put(localized_text(
                         "Should I turn the flashlight on or off?",
                         "क्या मैं फ़्लैशलाइट चालू करूँ या बंद करूँ?",

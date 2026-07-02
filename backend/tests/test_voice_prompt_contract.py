@@ -169,6 +169,8 @@ def test_flashlight_actions_are_dynamic_and_page_gated():
 
     assert "SequenceMatcher" in voice_source
     assert "fuzzy_token_match" in voice_source
+    assert '["flashlight", "flash", "torch", "light"]' not in voice_source
+    assert "has_flashlight_control_request" in voice_source
     assert "if active_page in [\"Scene Scanner\", \"Text Reader\"]" in voice_source
     assert "direct_flashlight_blocked" in voice_source
     assert "flaslight" not in voice_source
@@ -183,3 +185,11 @@ def test_llm_actions_pass_through_safety_gate_before_frontend_execution():
     assert "safety_gate_prerequisite" in voice_source
     assert "There is no SOS confirmation pending right now." in voice_source
     assert "or fuzzy_token_match(tokens, [\"back\", \"previous\"])" in voice_source
+
+
+def test_user_facing_prompt_avoids_internal_technical_names():
+    voice_source = read_repo_file("backend/app/api/v1/voice.py")
+
+    assert "OSRM distance checks" not in voice_source
+    assert "internal provider names" in voice_source
+    assert "Rain amount" in voice_source
